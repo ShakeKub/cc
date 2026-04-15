@@ -1,0 +1,27 @@
+{
+  "stats": {
+    "session_start": "2026-04-15T18:29:20.063911",
+    "duration_seconds": 33.081126,
+    "total_freed_bytes": 0,
+    "total_freed_readable": "0.0 B",
+    "actions_taken": 0,
+    "errors": 0,
+    "categories": {
+      "system": {
+        "count": 1,
+        "freed": 0
+      }
+    }
+  },
+  "entries": [
+    {
+      "timestamp": "2026-04-15T18:29:25.908998",
+      "action": "info",
+      "category": "system",
+      "details": "Disk usage for C:\\: 83.2% used",
+      "freed_bytes": 0,
+      "risk_level": "safe",
+      "success": true
+    }
+  ]
+}

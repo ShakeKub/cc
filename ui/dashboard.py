@@ -8,7 +8,7 @@ from rich.text import Text
 from rich.panel import Panel
 from rich.table import Table
 
-from system_cleaner.cc.ui.widgets import (
+from ui.widgets import (
     HeaderBanner, SystemStatsBar, StatusLine, InfoPanel, DataTable, MenuButton,
 )
 

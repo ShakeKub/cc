@@ -5,7 +5,7 @@ import subprocess
 import winreg
 from pathlib import Path
 from typing import Any
-from system_cleaner.cc.core.logger import CleanerLogger
+from core.logger import CleanerLogger
 
 
 # Registry locations for installed programs

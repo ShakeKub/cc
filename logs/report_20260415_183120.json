@@ -1,0 +1,45 @@
+{
+  "stats": {
+    "session_start": "2026-04-15T18:29:54.678233",
+    "duration_seconds": 85.818404,
+    "total_freed_bytes": 0,
+    "total_freed_readable": "0.0 B",
+    "actions_taken": 3,
+    "errors": 0,
+    "categories": {
+      "tracer": {
+        "count": 3,
+        "freed": 0
+      }
+    }
+  },
+  "entries": [
+    {
+      "timestamp": "2026-04-15T18:31:16.204360",
+      "action": "Starting tracer session for q (ID: 20260415_183116)",
+      "category": "tracer",
+      "details": "",
+      "freed_bytes": 0,
+      "risk_level": "safe",
+      "success": true
+    },
+    {
+      "timestamp": "2026-04-15T18:31:19.585331",
+      "action": "Stopping tracer session 20260415_183116",
+      "category": "tracer",
+      "details": "",
+      "freed_bytes": 0,
+      "risk_level": "safe",
+      "success": true
+    },
+    {
+      "timestamp": "2026-04-15T18:31:19.586332",
+      "action": "Tracer session saved to C:\\Users\\shake\\Documents\\cc\\profiles\\trace_20260415_183116.json",
+      "category": "tracer",
+      "details": "",
+      "freed_bytes": 0,
+      "risk_level": "safe",
+      "success": true
+    }
+  ]
+}

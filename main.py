@@ -44,8 +44,8 @@ def check_admin():
 
 def run_silent(profile_name: str = "standard"):
     """Run cleaning in silent mode (no UI)."""
-    from system_cleaner.cc.core.logger import CleanerLogger
-    from system_cleaner.cc.core.cleaner import clean_all
+    from core.logger import CleanerLogger
+    from core.cleaner import clean_all
 
     logger = CleanerLogger()
     config_path = Path(__file__).parent / "config.json"
@@ -74,11 +74,11 @@ def run_silent(profile_name: str = "standard"):
 
 def run_cli(command: str):
     """Run a CLI command."""
-    from system_cleaner.cc.core.logger import CleanerLogger
+    from core.logger import CleanerLogger
     logger = CleanerLogger()
 
     if command == "scan":
-        from system_cleaner.cc.core.cleaner import scan_all
+        from core.cleaner import scan_all
         print("[*] Scanning system...")
         results = scan_all(logger)
         total = logger._format_bytes(results.get("temp_size", 0))
@@ -103,7 +103,7 @@ def run_cli(command: str):
 
     elif command == "browsers":
         try:
-            from system_cleaner.cc.core.browser import detect_installed_browsers
+            from core.browser import detect_installed_browsers
             browsers = detect_installed_browsers()
             print(f"[*] Detected {len(browsers)} browsers:")
             for b in browsers:
@@ -113,7 +113,7 @@ def run_cli(command: str):
             print(f"[!] Error: {e}")
 
     elif command == "processes":
-        from system_cleaner.cc.core.process import list_processes
+        from core.process import list_processes
         procs = list_processes(sort_by="memory")
         print(f"[*] Top 20 processes by memory:")
         print(f"    {'PID':>8}  {'Name':<25}  {'CPU%':>6}  {'Memory':>12}")
@@ -123,7 +123,7 @@ def run_cli(command: str):
             print(f"    {p['pid']:>8}  {p['name']:<25}  {p['cpu_percent']:>5.1f}%  {mem:>12}")
 
     elif command == "network":
-        from system_cleaner.cc.core.network import get_ip_info
+        from core.network import get_ip_info
         info = get_ip_info()
         print(f"[*] Hostname: {info.get('hostname', 'N/A')}")
         for iface in info.get("interfaces", []):
@@ -164,7 +164,7 @@ def main():
         run_silent(args.profile)
     else:
         # Launch the TUI
-        from system_cleaner.cc.app import SystemCleanerApp
+        from app import SystemCleanerApp
         app = SystemCleanerApp()
         app.run()
 

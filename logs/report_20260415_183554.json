@@ -1,0 +1,45 @@
+{
+  "stats": {
+    "session_start": "2026-04-15T18:34:10.001184",
+    "duration_seconds": 104.763822,
+    "total_freed_bytes": 0,
+    "total_freed_readable": "0.0 B",
+    "actions_taken": 3,
+    "errors": 0,
+    "categories": {
+      "tracer": {
+        "count": 3,
+        "freed": 0
+      }
+    }
+  },
+  "entries": [
+    {
+      "timestamp": "2026-04-15T18:34:19.667383",
+      "action": "Starting tracer for 'loader.exe' watching 'C:\\Games' (ID: 20260415_183419)",
+      "category": "tracer",
+      "details": "",
+      "freed_bytes": 0,
+      "risk_level": "safe",
+      "success": true
+    },
+    {
+      "timestamp": "2026-04-15T18:35:05.712553",
+      "action": "Stopped tracer session 20260415_183419",
+      "category": "tracer",
+      "details": "",
+      "freed_bytes": 0,
+      "risk_level": "safe",
+      "success": true
+    },
+    {
+      "timestamp": "2026-04-15T18:35:05.713556",
+      "action": "Tracer session saved to C:\\Users\\shake\\Documents\\cc\\profiles\\trace_20260415_183419.json",
+      "category": "tracer",
+      "details": "",
+      "freed_bytes": 0,
+      "risk_level": "safe",
+      "success": true
+    }
+  ]
+}

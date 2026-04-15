@@ -7,7 +7,7 @@ import winreg
 from datetime import datetime
 from pathlib import Path
 from typing import Any
-from system_cleaner.cc.core.logger import CleanerLogger
+from core.logger import CleanerLogger
 
 
 # Registry locations to scan for invalid entries

@@ -6,7 +6,7 @@ import secrets
 from collections import defaultdict
 from pathlib import Path
 from typing import Any, Generator
-from system_cleaner.cc.core.logger import CleanerLogger
+from core.logger import CleanerLogger
 
 
 def get_disk_usage(path: str = "C:\\", logger: CleanerLogger | None = None) -> dict[str, Any]:
