@@ -1,0 +1,50 @@
+{
+    "theme": "cyberpunk",
+    "log_level": "INFO",
+    "log_dir": "logs",
+    "log_format": "json",
+    "confirm_risky_actions": true,
+    "backup_registry": true,
+    "max_log_files": 50,
+    "cleaning_profiles": {
+        "quick": {
+            "temp_files": true,
+            "recycle_bin": false,
+            "dns_cache": true,
+            "thumbnail_cache": true,
+            "browser_cache": false,
+            "browser_cookies": false,
+            "browser_history": false
+        },
+        "standard": {
+            "temp_files": true,
+            "recycle_bin": true,
+            "dns_cache": true,
+            "thumbnail_cache": true,
+            "browser_cache": true,
+            "browser_cookies": false,
+            "browser_history": false
+        },
+        "deep": {
+            "temp_files": true,
+            "recycle_bin": true,
+            "dns_cache": true,
+            "thumbnail_cache": true,
+            "browser_cache": true,
+            "browser_cookies": true,
+            "browser_history": true,
+            "windows_update_cache": true,
+            "prefetch": true,
+            "old_logs": true
+        }
+    },
+    "scheduled_tasks": [],
+    "plugins_dir": "plugins",
+    "safe_mode": true,
+    "protected_paths": [
+        "C:\\Windows\\System32",
+        "C:\\Windows\\SysWOW64",
+        "C:\\Program Files",
+        "C:\\Program Files (x86)"
+    ]
+}
