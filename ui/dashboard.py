@@ -8,7 +8,7 @@ from rich.text import Text
 from rich.panel import Panel
 from rich.table import Table
 
-from ui.widgets import (
+from system_cleaner.cc.ui.widgets import (
     HeaderBanner, SystemStatsBar, StatusLine, InfoPanel, DataTable, MenuButton,
 )
 
@@ -675,7 +675,8 @@ def render_scheduler_view(tasks: list[dict] | None = None,
 
 
 def render_tracer_view(traces: dict | None = None,
-                       summary: dict | None = None) -> str:
+                       summary: dict | None = None,
+                       sessions: list[dict] | None = None) -> str:
     """Render deep app tracer view."""
     from rich.console import Console
     from io import StringIO
@@ -689,7 +690,25 @@ def render_tracer_view(traces: dict | None = None,
         border_style="cyan",
     ))
 
-    if summary:
+    if sessions:
+        table = Table(title="Tracer Sessions", border_style="green", expand=True)
+        table.add_column("Session ID", style="cyan", width=20)
+        table.add_column("Application", width=25)
+        table.add_column("Date", width=15)
+        table.add_column("Files Traced", width=15, justify="right")
+
+        for session in sessions:
+            table.add_row(
+                session.get("session_id", ""),
+                session.get("app_name", ""),
+                session.get("session_id", "").split("_")[0],
+                str(len(session.get("created_files", []))),
+            )
+        console.print(table)
+        console.print("\n  [bold yellow]Actions:[/]")
+        console.print("  [S] Start Tracing  [D] Delete Session  [V] View Files")
+
+    elif summary:
         console.print(f"\n  [bold green]Application: {summary['app_name']}[/]")
         console.print(f"  Total traces found: {summary['total_traces']}")
         console.print(f"    Files:           {summary['files']}")
@@ -711,9 +730,10 @@ def render_tracer_view(traces: dict | None = None,
                     console.print(f"    [{risk_color}]●[/] {path}")
                 if len(items) > 10:
                     console.print(f"    [dim]... and {len(items) - 10} more[/]")
-
-    console.print("\n  [bold yellow]Actions:[/]")
-    console.print("  [A] Analyze App  [R] Remove Selected  [X] Deep Clean  [B] Backup First")
+    
+    if not sessions:
+        console.print("\n  [bold yellow]Actions:[/]")
+        console.print("  [A] Analyze App  [R] Remove Selected  [X] Deep Clean  [B] Backup First")
 
     return console.file.getvalue()
 

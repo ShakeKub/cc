@@ -169,6 +169,72 @@ class InputDialog(ModalScreen[str]):
         self.dismiss("")
 
 
+class TracerDialog(ModalScreen[tuple[str, str]]):
+    """Dialog to start/stop tracing an application."""
+
+    CSS = """
+    TracerDialog {
+        align: center middle;
+    }
+    #tracer-dialog {
+        width: 60;
+        height: auto;
+        background: $surface;
+        border: thick $secondary;
+        padding: 1 2;
+    }
+    #tracer-title {
+        text-align: center;
+        color: $secondary;
+        text-style: bold;
+        margin-bottom: 1;
+    }
+    #tracer-input {
+        margin-bottom: 1;
+    }
+    #tracer-buttons {
+        align: center middle;
+        height: 3;
+    }
+    """
+
+    def __init__(self, is_tracing: bool = False, app_name: str = ""):
+        super().__init__()
+        self.is_tracing = is_tracing
+        self.app_name = app_name
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="tracer-dialog"):
+            yield Static("🔍 Application Tracer", id="tracer-title")
+            if self.is_tracing:
+                yield Static(f"Currently tracing: [bold]{self.app_name}[/bold]")
+                with Horizontal(id="tracer-buttons"):
+                    yield Button("Stop Tracing", variant="error", id="btn-stop")
+                    yield Button("Cancel", variant="primary", id="btn-cancel")
+            else:
+                yield Input(placeholder="Enter application name to trace...", id="tracer-input")
+                with Horizontal(id="tracer-buttons"):
+                    yield Button("Start Tracing", variant="success", id="btn-start")
+                    yield Button("Cancel", variant="primary", id="btn-cancel")
+
+    def on_button_pressed(self, event: Button.Pressed):
+        if event.button.id == "btn-start":
+            app_name = self.query_one("#tracer-input", Input).value
+            if app_name:
+                self.dismiss(("start", app_name))
+        elif event.button.id == "btn-stop":
+            self.dismiss(("stop", self.app_name))
+        else:
+            self.dismiss(("", ""))
+
+    def on_input_submitted(self, event: Input.Submitted):
+        if event.value:
+            self.dismiss(("start", event.value))
+
+    def key_escape(self):
+        self.dismiss(("", ""))
+
+
 class CommandPalette(ModalScreen[str]):
     """VS Code-style command palette."""
 

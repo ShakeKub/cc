@@ -5,7 +5,7 @@ import subprocess
 import winreg
 from pathlib import Path
 from typing import Any
-from core.logger import CleanerLogger
+from system_cleaner.cc.core.logger import CleanerLogger
 
 
 # Registry locations for installed programs
@@ -239,6 +239,22 @@ def remove_leftovers(leftovers: dict[str, list[str]], logger: CleanerLogger) -> 
         except OSError as e:
             logger.warning(f"Cannot remove registry: {reg_path} - {e}")
 
+    return total_freed
+
+
+def remove_traced_files(files: list[str], logger: CleanerLogger) -> int:
+    """Remove files traced during an application's runtime. Returns bytes freed."""
+    total_freed = 0
+    for filepath in files:
+        try:
+            path = Path(filepath)
+            if path.exists() and path.is_file():
+                size = path.stat().st_size
+                path.unlink()
+                total_freed += size
+                logger.log("remove_traced", "uninstaller", f"Removed traced file: {filepath}", size)
+        except (PermissionError, OSError) as e:
+            logger.warning(f"Cannot remove traced file: {filepath} - {e}")
     return total_freed
 
 

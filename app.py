@@ -14,9 +14,9 @@ from textual.widgets import Header, Footer, Static
 from textual.timer import Timer
 from textual import work
 
-from core.logger import CleanerLogger
-from themes import get_theme, list_themes, THEMES
-from ui.dashboard import (
+from system_cleaner.cc.core.logger import CleanerLogger
+from system_cleaner.cc.themes import get_theme, list_themes, THEMES
+from system_cleaner.cc.ui.dashboard import (
     Sidebar, MainContent, DashboardLayout, MENU_ITEMS,
     render_dashboard_view, render_cleaner_view, render_process_view,
     render_network_view, render_startup_view, render_disk_view,
@@ -24,8 +24,11 @@ from ui.dashboard import (
     render_browser_view, render_uninstaller_view, render_scheduler_view,
     render_tracer_view, render_logs_view,
 )
-from ui.widgets import SystemStatsBar, StatusLine, HeaderBanner
-from ui.dialogs import ConfirmDialog, SearchDialog, InputDialog, CommandPalette
+from system_cleaner.cc.ui.widgets import SystemStatsBar, StatusLine, HeaderBanner
+from system_cleaner.cc.ui.dialogs import (
+    ConfirmDialog, SearchDialog, InputDialog, CommandPalette, TracerDialog
+)
+from system_cleaner.cc.core.tracer_session import TracerSession
 
 
 def load_config() -> dict:
@@ -137,6 +140,7 @@ class SystemCleanerApp(App):
         ("n", "action_n", "Action N"),
         ("u", "action_u", "Action U"),
         ("h", "action_h", "Action H"),
+        ("v", "action_v", "Action V"),
         ("question_mark", "show_help", "Help"),
     ]
 
@@ -173,6 +177,10 @@ class SystemCleanerApp(App):
         self._cleaning_profiles: dict | None = None
         self._tracer_traces: dict | None = None
         self._tracer_summary: dict | None = None
+        self._tracer_sessions: list[dict] = []
+        self._is_tracing = False
+        self._current_tracer_session: TracerSession | None = None
+
 
         self._stats_timer: Timer | None = None
 
@@ -200,6 +208,7 @@ class SystemCleanerApp(App):
     def on_mount(self):
         """Initialize the app after mounting."""
         self._set_status("System Cleaner initialized. Use ↑/↓ to navigate, Enter to select.", "info")
+        self._load_tracer_sessions()
         self._refresh_view()
         # Start stats timer
         self._stats_timer = self.set_interval(2.0, self._update_stats)
@@ -265,7 +274,7 @@ class SystemCleanerApp(App):
                 self._scheduled_tasks, self._cleaning_profiles))
         elif view_name == "tracer":
             content.update_view(view_name, render_tracer_view(
-                self._tracer_traces, self._tracer_summary))
+                sessions=self._tracer_sessions))
         elif view_name == "logs":
             stats = self.logger.get_session_stats()
             content.update_view(view_name, render_logs_view(
@@ -299,6 +308,7 @@ class SystemCleanerApp(App):
         if action:
             self.current_view = action
             self._refresh_view()
+            self.query_one("#main-content", MainContent).focus()
 
     def action_menu_down(self):
         sidebar = self.query_one("#sidebar", Sidebar)
@@ -307,9 +317,16 @@ class SystemCleanerApp(App):
         if action:
             self.current_view = action
             self._refresh_view()
+            self.query_one("#main-content", MainContent).focus()
 
     def action_menu_select(self):
-        self._refresh_view()
+        sidebar = self.query_one("#sidebar", Sidebar)
+        action = sidebar.get_selected_action()
+        if action == "tracer":
+            self._open_tracer_dialog()
+        else:
+            self.current_view = action
+            self._refresh_view()
 
     # ── Quick Actions (Dashboard numbers) ───────────────────
 
@@ -377,6 +394,8 @@ class SystemCleanerApp(App):
             self._scan_privacy()
         elif self.current_view == "startup":
             self._load_startup()
+        elif self.current_view == "tracer":
+            self._open_tracer_dialog()
 
     def action_clean(self):
         """Handle clean action based on current view."""
@@ -384,12 +403,14 @@ class SystemCleanerApp(App):
             self._confirm_and_clean()
         elif self.current_view == "browser":
             self._confirm_and_clean_browser()
+        elif self.current_view == "tracer":
+            self._clean_traced_files()
 
     @work(thread=True)
     def _scan_system(self):
         """Scan system in background thread."""
         self._set_status("Scanning system...", "working")
-        from core.cleaner import scan_all
+        from system_cleaner.cc.core.cleaner import scan_all
         self._scan_results = scan_all(self.logger)
         self.call_from_thread(self._post_scan)
 
@@ -417,7 +438,7 @@ class SystemCleanerApp(App):
     def _run_clean(self, profile_name: str):
         """Run cleaning with specified profile."""
         self._set_status(f"Running {profile_name} clean...", "working")
-        from core.cleaner import clean_all
+        from system_cleaner.cc.core.cleaner import clean_all
         profiles = self.config.get("cleaning_profiles", {})
         profile = profiles.get(profile_name)
         results = clean_all(self.logger, profile)
@@ -425,7 +446,7 @@ class SystemCleanerApp(App):
         self.call_from_thread(self._post_clean, freed)
 
     def _post_clean(self, freed: int):
-        from core.logger import CleanerLogger
+        from system_cleaner.cc.core.logger import CleanerLogger
         freed_str = CleanerLogger._format_bytes(freed)
         self._set_status(f"Cleaning complete! Freed {freed_str}", "success")
         self._refresh_view()
@@ -435,7 +456,7 @@ class SystemCleanerApp(App):
     @work(thread=True)
     def _load_processes(self):
         """Load process list in background."""
-        from core.process import list_processes
+        from system_cleaner.cc.core.process import list_processes
         self._processes = list_processes(sort_by="memory", logger=self.logger)
         self.call_from_thread(self._render_processes)
 
@@ -464,7 +485,7 @@ class SystemCleanerApp(App):
     def _confirm_kill(self, pid: int):
         def on_confirm(confirmed: bool):
             if confirmed:
-                from core.process import kill_process
+                from system_cleaner.cc.core.process import kill_process
                 success = kill_process(pid, self.logger)
                 if success:
                     self._set_status(f"Process {pid} terminated", "success")
@@ -486,7 +507,7 @@ class SystemCleanerApp(App):
     @work(thread=True)
     def _load_network(self):
         """Load network info in background."""
-        from core.network import get_active_connections, get_ip_info
+        from system_cleaner.cc.core.network import get_active_connections, get_ip_info
         self._connections = get_active_connections(self.logger)
         self._ip_info = get_ip_info(self.logger)
         self.call_from_thread(self._render_network)
@@ -498,7 +519,7 @@ class SystemCleanerApp(App):
 
     def action_flush_dns(self):
         if self.current_view == "network":
-            from core.network import flush_dns
+            from system_cleaner.cc.core.network import flush_dns
             success = flush_dns(self.logger)
             self._set_status(
                 "DNS cache flushed" if success else "DNS flush failed",
@@ -512,7 +533,7 @@ class SystemCleanerApp(App):
         """Load startup entries."""
         self._set_status("Loading startup entries...", "working")
         try:
-            from core.startup import get_startup_entries
+            from system_cleaner.cc.core.startup import get_startup_entries
             self._startup_entries = get_startup_entries(self.logger)
         except Exception as e:
             self._startup_entries = []
@@ -529,7 +550,7 @@ class SystemCleanerApp(App):
     @work(thread=True)
     def _load_disk(self):
         """Load disk usage info."""
-        from core.disk import get_disk_usage
+        from system_cleaner.cc.core.disk import get_disk_usage
         root = "C:\\" if os.name == "nt" else "/"
         self._disk_usage = get_disk_usage(root, self.logger)
         self.call_from_thread(self._render_disk)
@@ -545,7 +566,7 @@ class SystemCleanerApp(App):
     def _scan_browsers(self):
         """Scan browser data."""
         self._set_status("Scanning browsers...", "working")
-        from core.browser import detect_installed_browsers
+        from system_cleaner.cc.core.browser import detect_installed_browsers
         self._browsers = detect_installed_browsers()
         self.call_from_thread(self._render_browsers)
 
@@ -571,13 +592,56 @@ class SystemCleanerApp(App):
 
     @work(thread=True)
     def _clean_browser_cache(self):
-        from core.browser import clean_all_browsers
+        from system_cleaner.cc.core.browser import clean_all_browsers
         results = clean_all_browsers(self.logger, cache=True)
         total = sum(sum(v.values()) for v in results.values())
-        from core.logger import CleanerLogger
+        from system_cleaner.cc.core.logger import CleanerLogger
         freed_str = CleanerLogger._format_bytes(total)
         self.call_from_thread(
             lambda: self._set_status(f"Browser cache cleaned: {freed_str}", "success")
+        )
+
+    def _clean_traced_files(self):
+        """Clean traced files from a session."""
+        def on_input(session_id: str):
+            if not session_id:
+                return
+
+            session_to_clean = None
+            for session in self._tracer_sessions:
+                if session.get("session_id") == session_id:
+                    session_to_clean = session
+                    break
+            
+            if not session_to_clean:
+                self._set_status(f"Session '{session_id}' not found.", "error")
+                return
+
+            files_to_delete = session_to_clean.get("created_files", [])
+            if not files_to_delete:
+                self._set_status(f"No files to delete in session '{session_id}'", "info")
+                return
+
+            def on_confirm(confirmed: bool):
+                if confirmed:
+                    from system_cleaner.cc.core.uninstaller import remove_traced_files
+                    freed_bytes = remove_traced_files(files_to_delete, self.logger)
+                    from system_cleaner.cc.core.logger import CleanerLogger
+                    freed_str = CleanerLogger._format_bytes(freed_bytes)
+                    self._set_status(f"Cleaned {len(files_to_delete)} traced files, freed {freed_str}", "success")
+
+            self.push_screen(
+                ConfirmDialog(
+                    "Clean Traced Files",
+                    f"Are you sure you want to delete {len(files_to_delete)} files from session '{session_id}'?",
+                    risk_level="high"
+                ),
+                on_confirm
+            )
+
+        self.push_screen(
+            InputDialog("Clean Traced Files", "Enter Session ID to clean:"),
+            on_input
         )
 
     # ── Registry ────────────────────────────────────────────
@@ -587,7 +651,7 @@ class SystemCleanerApp(App):
         """Scan registry for invalid entries."""
         self._set_status("Scanning registry...", "working")
         try:
-            from core.registry import scan_invalid_entries
+            from system_cleaner.cc.core.registry import scan_invalid_entries
             self._registry_invalid = scan_invalid_entries(self.logger)
         except Exception as e:
             self._registry_invalid = []
@@ -607,7 +671,7 @@ class SystemCleanerApp(App):
         """Scan privacy settings."""
         self._set_status("Scanning privacy settings...", "working")
         try:
-            from core.privacy import get_telemetry_status, scan_tracking_files
+            from system_cleaner.cc.core.privacy import get_telemetry_status, scan_tracking_files
             self._telemetry = get_telemetry_status(self.logger)
             self._tracking = scan_tracking_files(self.logger)
         except Exception as e:
@@ -627,9 +691,9 @@ class SystemCleanerApp(App):
         """Optimize RAM usage."""
         self._set_status("Optimizing RAM...", "working")
         try:
-            from core.optimizer import optimize_ram
+            from system_cleaner.cc.core.optimizer import optimize_ram
             result = optimize_ram(self.logger)
-            from core.logger import CleanerLogger
+            from system_cleaner.cc.core.logger import CleanerLogger
             freed_str = CleanerLogger._format_bytes(result.get("freed", 0))
             self.call_from_thread(
                 lambda: self._set_status(f"RAM optimized: freed {freed_str}", "success")
@@ -653,7 +717,7 @@ class SystemCleanerApp(App):
         """Handle search query based on current view."""
         self._set_status(f"Searching: {query}", "working")
         if self.current_view == "uninstaller" and self._programs:
-            from core.uninstaller import search_programs
+            from system_cleaner.cc.core.uninstaller import search_programs
             filtered = search_programs(self._programs, query)
             content = self.query_one("#main-content", MainContent)
             content.update_view("uninstaller", render_uninstaller_view(filtered))
@@ -709,7 +773,10 @@ class SystemCleanerApp(App):
         elif category == "export":
             self._export_log(action)
         elif category == "trace":
-            self._start_trace_analysis()
+            if action == "start":
+                self._open_tracer_dialog()
+            else:
+                self._start_trace_analysis()
         elif category == "privacy":
             self.current_view = "privacy"
             self._scan_privacy()
@@ -718,7 +785,7 @@ class SystemCleanerApp(App):
     def _run_diagnostics(self):
         """Run network diagnostics."""
         self._set_status("Running network diagnostics...", "working")
-        from core.network import run_diagnostics
+        from system_cleaner.cc.core.network import run_diagnostics
         results = run_diagnostics(self.logger)
         passed = sum(1 for t in results if t["status"] == "pass")
         self.call_from_thread(
@@ -739,6 +806,50 @@ class SystemCleanerApp(App):
 
     # ── App Tracer ──────────────────────────────────────────
 
+    def _open_tracer_dialog(self):
+        """Open the tracer dialog to start/stop tracing."""
+        app_name = self._current_tracer_session.app_name if self._current_tracer_session else ""
+        dialog = TracerDialog(is_tracing=self._is_tracing, app_name=app_name)
+
+        def on_dialog_dismiss(result: tuple[str, str]):
+            action, app_name = result
+            if action == "start":
+                self._start_tracer(app_name)
+            elif action == "stop":
+                self._stop_tracer()
+
+        self.push_screen(dialog, on_dialog_dismiss)
+
+    def _start_tracer(self, app_name: str):
+        """Start a new tracer session."""
+        if self._is_tracing:
+            self._set_status("A tracer session is already running.", "warning")
+            return
+        profile_path = Path(self.config.get("profile_dir", "profiles"))
+        profile_path.mkdir(exist_ok=True)
+        self._current_tracer_session = TracerSession(app_name, str(profile_path), self.logger)
+        self._current_tracer_session.start()
+        self._is_tracing = True
+        self._set_status(f"Started tracing for '{app_name}'", "success")
+
+    def _stop_tracer(self):
+        """Stop the current tracer session."""
+        if not self._is_tracing or not self._current_tracer_session:
+            self._set_status("No tracer session is running.", "warning")
+            return
+        self._current_tracer_session.stop()
+        self._is_tracing = False
+        self._set_status(f"Stopped tracing for '{self._current_tracer_session.app_name}'", "success")
+        self._load_tracer_sessions()
+        self._current_tracer_session = None
+        self._refresh_view()
+
+    def _load_tracer_sessions(self):
+        """Load all saved tracer sessions."""
+        profile_path = Path(self.config.get("profile_dir", "profiles"))
+        self._tracer_sessions = TracerSession.load_sessions(str(profile_path))
+        self._set_status(f"Loaded {len(self._tracer_sessions)} tracer sessions.", "info")
+
     def _start_trace_analysis(self):
         """Start deep app trace analysis."""
         def on_input(app_name: str):
@@ -757,7 +868,7 @@ class SystemCleanerApp(App):
     def _run_trace(self, app_name: str):
         """Run trace analysis in background."""
         self._set_status(f"Analyzing traces for '{app_name}'...", "working")
-        from core.tracer import AppTracer
+        from system_cleaner.cc.core.tracer import AppTracer
         tracer = AppTracer(app_name, logger=self.logger)
         self._tracer_traces = tracer.scan_all()
         self._tracer_summary = tracer.get_summary()
@@ -767,7 +878,7 @@ class SystemCleanerApp(App):
         self.current_view = "tracer"
         content = self.query_one("#main-content", MainContent)
         content.update_view("tracer", render_tracer_view(
-            self._tracer_traces, self._tracer_summary))
+            sessions=self._tracer_sessions))
         total = self._tracer_summary.get("total_traces", 0) if self._tracer_summary else 0
         self._set_status(f"Trace analysis complete: {total} traces found", "info")
 
@@ -787,6 +898,8 @@ class SystemCleanerApp(App):
             self._disable_service()
         elif self.current_view == "scheduler":
             self._delete_task()
+        elif self.current_view == "tracer":
+            self._delete_tracer_session()
 
     def action_action_e(self):
         if self.current_view == "startup":
@@ -859,6 +972,92 @@ class SystemCleanerApp(App):
         elif self.current_view == "scheduler":
             self._toggle_task()
 
+    def action_action_v(self):
+        """View traced files for a session."""
+        if self.current_view == "tracer":
+            self._view_traced_files()
+
+    def _delete_tracer_session(self):
+        """Delete a selected tracer session."""
+        def on_input(session_id: str):
+            if not session_id:
+                return
+            
+            session_to_delete = None
+            for session in self._tracer_sessions:
+                if session.get("session_id") == session_id:
+                    session_to_delete = session
+                    break
+            
+            if not session_to_delete:
+                self._set_status(f"Session '{session_id}' not found.", "error")
+                return
+
+            def on_confirm(confirmed: bool):
+                if confirmed:
+                    profile_path = Path(self.config.get("profile_dir", "profiles"))
+                    session_file = profile_path / f"trace_{session_id}.json"
+                    if session_file.exists():
+                        session_file.unlink()
+                        self._load_tracer_sessions()
+                        self._refresh_view()
+                        self._set_status(f"Deleted session '{session_id}'", "success")
+                    else:
+                        self._set_status(f"Session file for '{session_id}' not found.", "error")
+
+            self.push_screen(
+                ConfirmDialog(
+                    "Delete Tracer Session",
+                    f"Are you sure you want to delete session '{session_id}'?\n"
+                    "This will also delete the list of traced files.",
+                    risk_level="high"
+                ),
+                on_confirm
+            )
+
+        self.push_screen(
+            InputDialog("Delete Session", "Enter Session ID to delete:"),
+            on_input
+        )
+
+    def _view_traced_files(self):
+        """View the files traced in a selected session."""
+        def on_input(session_id: str):
+            if not session_id:
+                return
+
+            session_to_view = None
+            for session in self._tracer_sessions:
+                if session.get("session_id") == session_id:
+                    session_to_view = session
+                    break
+            
+            if not session_to_view:
+                self._set_status(f"Session '{session_id}' not found.", "error")
+                return
+
+            files = session_to_view.get("created_files", [])
+            content = self.query_one("#main-content", MainContent)
+            
+            from rich.console import Console
+            from io import StringIO
+            from rich.panel import Panel
+            
+            console = Console(file=StringIO(), force_terminal=True, width=100)
+            console.print(Panel(
+                "\n".join(files),
+                title=f"Traced files for session {session_id}",
+                border_style="cyan"
+            ))
+            
+            content.update_view("tracer", console.file.getvalue())
+            self._set_status(f"Showing {len(files)} traced files for session {session_id}", "info")
+
+        self.push_screen(
+            InputDialog("View Traced Files", "Enter Session ID to view:"),
+            on_input
+        )
+
     # ── Stub actions (prompt for input then execute) ────────
 
     def _disable_startup_entry(self):
@@ -867,7 +1066,7 @@ class SystemCleanerApp(App):
                 try:
                     idx = int(idx_str) - 1
                     if 0 <= idx < len(self._startup_entries):
-                        from core.startup import disable_startup_entry
+                        from system_cleaner.cc.core.startup import disable_startup_entry
                         entry = self._startup_entries[idx]
                         success = disable_startup_entry(entry, self.logger)
                         self._set_status(
@@ -885,7 +1084,7 @@ class SystemCleanerApp(App):
                 try:
                     idx = int(idx_str) - 1
                     if 0 <= idx < len(self._startup_entries):
-                        from core.startup import enable_startup_entry
+                        from system_cleaner.cc.core.startup import enable_startup_entry
                         entry = self._startup_entries[idx]
                         success = enable_startup_entry(entry, self.logger)
                         self._set_status(
@@ -906,7 +1105,7 @@ class SystemCleanerApp(App):
                         entry = self._startup_entries[idx]
                         def on_confirm(confirmed: bool):
                             if confirmed:
-                                from core.startup import remove_startup_entry
+                                from system_cleaner.cc.core.startup import remove_startup_entry
                                 success = remove_startup_entry(entry, self.logger)
                                 self._set_status(
                                     f"Removed: {entry['name']}" if success else "Failed",
@@ -925,7 +1124,7 @@ class SystemCleanerApp(App):
     @work(thread=True)
     def _find_large_files(self):
         self._set_status("Searching for large files...", "working")
-        from core.disk import find_large_files
+        from system_cleaner.cc.core.disk import find_large_files
         root = "C:\\" if os.name == "nt" else "/"
         self._large_files = find_large_files(root, min_size_mb=100, logger=self.logger)
         self.call_from_thread(self._render_disk)
@@ -940,7 +1139,7 @@ class SystemCleanerApp(App):
 
         def on_input(path: str):
             if path:
-                from core.disk import find_duplicate_files
+                from system_cleaner.cc.core.disk import find_duplicate_files
                 dupes = find_duplicate_files(path, logger=self.logger)
                 self._set_status(f"Found {len(dupes)} duplicate groups", "info")
 
@@ -952,7 +1151,7 @@ class SystemCleanerApp(App):
     def _find_empty_folders(self):
         def on_input(path: str):
             if path:
-                from core.disk import find_empty_folders
+                from system_cleaner.cc.core.disk import find_empty_folders
                 empties = find_empty_folders(path, self.logger)
                 self._set_status(f"Found {len(empties)} empty folders", "info")
         self.push_screen(
@@ -972,7 +1171,7 @@ class SystemCleanerApp(App):
     @work(thread=True)
     def _do_analyze(self, path: str):
         self._set_status(f"Analyzing {path}...", "working")
-        from core.disk import analyze_directory
+        from system_cleaner.cc.core.disk import analyze_directory
         results = analyze_directory(path, max_depth=2, logger=self.logger)
         self.call_from_thread(
             lambda: self._set_status(f"Analysis complete: {len(results)} directories", "info")
@@ -983,7 +1182,7 @@ class SystemCleanerApp(App):
             if filepath:
                 def on_confirm(confirmed: bool):
                     if confirmed:
-                        from core.disk import secure_shred
+                        from system_cleaner.cc.core.disk import secure_shred
                         success = secure_shred(filepath, passes=3, logger=self.logger)
                         self._set_status(
                             f"File shredded: {filepath}" if success else "Shred failed",
@@ -999,296 +1198,20 @@ class SystemCleanerApp(App):
             InputDialog("Secure Shred", "Enter file path to shred:"),
             on_input,
         )
-
-    def _backup_registry(self):
-        self._set_status("Creating registry backup...", "working")
-        from core.registry import backup_registry
-        path = backup_registry(logger=self.logger)
-        if path:
-            self._set_status(f"Registry backed up: {path}", "success")
-        else:
-            self._set_status("Registry backup failed", "error")
-
-    def _uninstall_program(self):
-        def on_input(idx_str: str):
-            if idx_str and self._programs:
-                try:
-                    idx = int(idx_str) - 1
-                    if 0 <= idx < len(self._programs):
-                        prog = self._programs[idx]
-                        def on_confirm(confirmed: bool):
-                            if confirmed:
-                                self._do_uninstall(prog)
-                        self.push_screen(
-                            ConfirmDialog("Uninstall Program",
-                                         f"Uninstall '{prog['name']}'?", "medium"),
-                            on_confirm,
-                        )
-                except ValueError:
-                    self._set_status("Invalid program number", "error")
-        self.push_screen(InputDialog("Uninstall", "Enter program number:"), on_input)
-
-    @work(thread=True)
-    def _do_uninstall(self, prog: dict):
-        self._set_status(f"Uninstalling {prog['name']}...", "working")
-        from core.uninstaller import uninstall_program
-        success = uninstall_program(prog, self.logger, silent=True)
-        self.call_from_thread(lambda: self._set_status(
-            f"Uninstalled: {prog['name']}" if success else f"Uninstall failed: {prog['name']}",
-            "success" if success else "error",
-        ))
-
-    def _deep_uninstall(self):
-        def on_input(idx_str: str):
-            if idx_str and self._programs:
-                try:
-                    idx = int(idx_str) - 1
-                    if 0 <= idx < len(self._programs):
-                        prog = self._programs[idx]
-                        def on_confirm(confirmed: bool):
-                            if confirmed:
-                                self._do_deep_uninstall(prog)
-                        self.push_screen(
-                            ConfirmDialog("Deep Uninstall",
-                                         f"Deep uninstall '{prog['name']}'?\n"
-                                         "This will also remove leftover files and registry entries.",
-                                         "high"),
-                            on_confirm,
-                        )
-                except ValueError:
-                    pass
-        self.push_screen(InputDialog("Deep Uninstall", "Enter program number:"), on_input)
-
-    @work(thread=True)
-    def _do_deep_uninstall(self, prog: dict):
-        self._set_status(f"Deep uninstalling {prog['name']}...", "working")
-        from core.uninstaller import uninstall_program, find_leftovers, remove_leftovers
-        uninstall_program(prog, self.logger, silent=True)
-        leftovers = find_leftovers(prog, self.logger)
-        freed = remove_leftovers(leftovers, self.logger)
-        from core.logger import CleanerLogger
-        freed_str = CleanerLogger._format_bytes(freed)
-        self.call_from_thread(lambda: self._set_status(
-            f"Deep uninstall complete: freed {freed_str}", "success"
-        ))
-
-    @work(thread=True)
-    def _find_orphaned(self):
-        self._set_status("Scanning for orphaned entries...", "working")
-        from core.uninstaller import detect_orphaned_entries
-        orphaned = detect_orphaned_entries(self.logger)
-        self.call_from_thread(lambda: self._set_status(
-            f"Found {len(orphaned)} orphaned entries", "info"
-        ))
-
-    def _disable_service(self):
-        def on_input(idx_str: str):
-            if idx_str and self._services:
-                try:
-                    idx = int(idx_str) - 1
-                    if 0 <= idx < len(self._services):
-                        svc = self._services[idx]
-                        from core.optimizer import disable_service
-                        success = disable_service(svc["name"], self.logger)
-                        self._set_status(
-                            f"Disabled: {svc['display_name']}" if success else "Failed",
-                            "success" if success else "error",
-                        )
-                except ValueError:
-                    pass
-        self.push_screen(InputDialog("Disable Service", "Enter service number:"), on_input)
-
-    def _enable_service(self):
-        def on_input(idx_str: str):
-            if idx_str and self._services:
-                try:
-                    idx = int(idx_str) - 1
-                    if 0 <= idx < len(self._services):
-                        svc = self._services[idx]
-                        from core.optimizer import enable_service
-                        success = enable_service(svc["name"], self.logger)
-                        self._set_status(
-                            f"Enabled: {svc['display_name']}" if success else "Failed",
-                            "success" if success else "error",
-                        )
-                except ValueError:
-                    pass
-        self.push_screen(InputDialog("Enable Service", "Enter service number:"), on_input)
-
-    def _switch_power_plan(self):
-        def on_input(guid: str):
-            if guid:
-                from core.optimizer import set_power_plan
-                success = set_power_plan(guid, self.logger)
-                self._set_status(
-                    "Power plan switched" if success else "Failed",
-                    "success" if success else "error",
-                )
-        self.push_screen(InputDialog("Power Plan", "Enter power plan GUID:"), on_input)
-
-    def _ping_host(self):
-        def on_input(host: str):
-            if host:
-                self._do_ping(host)
-        self.push_screen(InputDialog("Ping", "Enter hostname or IP:", "8.8.8.8"), on_input)
-
-    @work(thread=True)
-    def _do_ping(self, host: str):
-        self._set_status(f"Pinging {host}...", "working")
-        from core.network import ping
-        result = ping(host, count=4, logger=self.logger)
-        status = "success" if result["success"] else "error"
-        avg = result.get("avg_latency_ms", "N/A")
-        self.call_from_thread(lambda: self._set_status(
-            f"Ping {host}: {'OK' if result['success'] else 'FAIL'} (avg: {avg}ms)",
-            status,
-        ))
-
-    def _toggle_telemetry(self):
-        def on_input(idx_str: str):
-            if idx_str and self._telemetry:
-                try:
-                    idx = int(idx_str) - 1
-                    if 0 <= idx < len(self._telemetry):
-                        setting = self._telemetry[idx]
-                        from core.privacy import disable_telemetry, enable_telemetry
-                        if setting["enabled"]:
-                            success = disable_telemetry(setting["name"], self.logger)
-                        else:
-                            success = enable_telemetry(setting["name"], self.logger)
-                        self._set_status(
-                            f"Toggled: {setting['name']}" if success else "Failed",
-                            "success" if success else "error",
-                        )
-                        self._scan_privacy()
-                except ValueError:
-                    pass
-        self.push_screen(InputDialog("Toggle Telemetry", "Enter setting number:"), on_input)
-
-    def _secure_delete(self):
-        self._shred_file()  # Same as shred
-
-    def _clean_all_browser_data(self):
-        def on_confirm(confirmed: bool):
-            if confirmed:
-                self._do_clean_all_browsers()
-        self.push_screen(
-            ConfirmDialog("Clean All Browser Data",
-                         "Clear ALL browser data (cache, cookies, history, sessions)?",
-                         "high"),
-            on_confirm,
-        )
-
-    @work(thread=True)
-    def _do_clean_all_browsers(self):
-        from core.browser import clean_all_browsers
-        results = clean_all_browsers(self.logger, cache=True, cookies=True,
-                                      history=True, sessions=True)
-        total = sum(sum(v.values()) for v in results.values())
-        from core.logger import CleanerLogger
-        freed_str = CleanerLogger._format_bytes(total)
-        self.call_from_thread(lambda: self._set_status(
-            f"All browser data cleaned: {freed_str}", "success"
-        ))
-
-    def _clean_browser_history(self):
-        def on_confirm(confirmed: bool):
-            if confirmed:
-                self._do_clean_browser_history()
-        self.push_screen(
-            ConfirmDialog("Clean Browser History",
-                         "Clear browser history for all browsers?", "medium"),
-            on_confirm,
-        )
-
-    @work(thread=True)
-    def _do_clean_browser_history(self):
-        from core.browser import clean_all_browsers
-        results = clean_all_browsers(self.logger, history=True)
-        self.call_from_thread(lambda: self._set_status("Browser history cleaned", "success"))
-
-    def _deep_clean_app(self):
-        if not self._tracer_traces:
-            self._set_status("No trace analysis loaded. Press [A] first.", "warning")
-            return
-
-        def on_confirm(confirmed: bool):
-            if confirmed:
-                self._do_deep_clean_app()
-
-        self.push_screen(
-            ConfirmDialog("Deep Clean Application",
-                         "Remove ALL detected traces?\n"
-                         "Registry will be backed up first.",
-                         "high"),
-            on_confirm,
-        )
-
-    @work(thread=True)
-    def _do_deep_clean_app(self):
-        self._set_status("Deep cleaning application traces...", "working")
-        from core.tracer import AppTracer
-        tracer = AppTracer(
-            self._tracer_summary["app_name"] if self._tracer_summary else "",
-            logger=self.logger,
-        )
-        tracer.traces = self._tracer_traces
-        results = tracer.deep_clean(backup_registry=True)
-        self.call_from_thread(lambda: self._set_status(
-            f"Deep clean: {results['removed']} removed, "
-            f"{results['failed']} failed, {results['skipped']} skipped",
-            "success" if results["failed"] == 0 else "warning",
-        ))
-
-    def _create_task(self):
-        def on_input(name: str):
-            if name:
-                from core.scheduler import create_scheduled_task
-                success = create_scheduled_task(name, "daily", "standard", self.logger)
-                self._set_status(
-                    f"Task created: {name}" if success else "Failed",
-                    "success" if success else "error",
-                )
-        self.push_screen(InputDialog("New Task", "Enter task name:"), on_input)
-
-    def _delete_task(self):
-        def on_input(name: str):
-            if name:
-                from core.scheduler import delete_scheduled_task
-                success = delete_scheduled_task(name, self.logger)
-                self._set_status(
-                    f"Task deleted: {name}" if success else "Failed",
-                    "success" if success else "error",
-                )
-        self.push_screen(InputDialog("Delete Task", "Enter task name:"), on_input)
-
-    def _toggle_task(self):
-        def on_input(name: str):
-            if name:
-                from core.scheduler import toggle_scheduled_task
-                success = toggle_scheduled_task(name, True, self.logger)
-                self._set_status(
-                    f"Task toggled: {name}" if success else "Failed",
-                    "success" if success else "error",
-                )
-        self.push_screen(InputDialog("Toggle Task", "Enter task name:"), on_input)
-
-    def _create_profile(self):
-        def on_input(name: str):
-            if name:
-                from core.scheduler import save_cleaning_profile
-                profile = {"temp_files": True, "dns_cache": True, "thumbnail_cache": True}
-                save_cleaning_profile(name, profile, self.logger)
-                self._set_status(f"Profile created: {name}", "success")
-        self.push_screen(InputDialog("New Profile", "Enter profile name:"), on_input)
-
-    # ── Theme & Misc ────────────────────────────────────────
+    
+    def action_quit_app(self):
+        """Quit the application."""
+        if self._is_tracing and self._current_tracer_session:
+            self._stop_tracer()
+        self.exit()
 
     def action_cycle_theme(self):
         """Cycle through available themes."""
         self.theme_index = (self.theme_index + 1) % len(self.theme_names)
         theme_name = self.theme_names[self.theme_index]
-        self._set_status(f"Theme: {theme_name}", "info")
+        self.design = get_theme(theme_name)
+        self._set_status(f"Theme set to: {theme_name}", "info")
+        self.refresh()
 
     def action_refresh(self):
         """Refresh current view."""
