@@ -19,6 +19,10 @@ import os
 import sys
 from pathlib import Path
 
+# Add project root to the Python path
+project_root = Path(__file__).parent.parent
+sys.path.insert(0, str(project_root))
+
 
 def check_platform():
     """Warn if not running on Windows (core features need Windows APIs)."""
@@ -40,8 +44,8 @@ def check_admin():
 
 def run_silent(profile_name: str = "standard"):
     """Run cleaning in silent mode (no UI)."""
-    from core.logger import CleanerLogger
-    from core.cleaner import clean_all
+    from system_cleaner.cc.core.logger import CleanerLogger
+    from system_cleaner.cc.core.cleaner import clean_all
 
     logger = CleanerLogger()
     config_path = Path(__file__).parent / "config.json"
@@ -70,11 +74,11 @@ def run_silent(profile_name: str = "standard"):
 
 def run_cli(command: str):
     """Run a CLI command."""
-    from core.logger import CleanerLogger
+    from system_cleaner.cc.core.logger import CleanerLogger
     logger = CleanerLogger()
 
     if command == "scan":
-        from core.cleaner import scan_all
+        from system_cleaner.cc.core.cleaner import scan_all
         print("[*] Scanning system...")
         results = scan_all(logger)
         total = logger._format_bytes(results.get("temp_size", 0))
@@ -99,7 +103,7 @@ def run_cli(command: str):
 
     elif command == "browsers":
         try:
-            from core.browser import detect_installed_browsers
+            from system_cleaner.cc.core.browser import detect_installed_browsers
             browsers = detect_installed_browsers()
             print(f"[*] Detected {len(browsers)} browsers:")
             for b in browsers:
@@ -109,7 +113,7 @@ def run_cli(command: str):
             print(f"[!] Error: {e}")
 
     elif command == "processes":
-        from core.process import list_processes
+        from system_cleaner.cc.core.process import list_processes
         procs = list_processes(sort_by="memory")
         print(f"[*] Top 20 processes by memory:")
         print(f"    {'PID':>8}  {'Name':<25}  {'CPU%':>6}  {'Memory':>12}")
@@ -119,7 +123,7 @@ def run_cli(command: str):
             print(f"    {p['pid']:>8}  {p['name']:<25}  {p['cpu_percent']:>5.1f}%  {mem:>12}")
 
     elif command == "network":
-        from core.network import get_ip_info
+        from system_cleaner.cc.core.network import get_ip_info
         info = get_ip_info()
         print(f"[*] Hostname: {info.get('hostname', 'N/A')}")
         for iface in info.get("interfaces", []):
@@ -160,7 +164,7 @@ def main():
         run_silent(args.profile)
     else:
         # Launch the TUI
-        from app import SystemCleanerApp
+        from system_cleaner.cc.app import SystemCleanerApp
         app = SystemCleanerApp()
         app.run()
 
