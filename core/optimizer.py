@@ -224,12 +224,11 @@ def set_power_plan(guid: str, logger: CleanerLogger) -> bool:
 
 def get_system_stats() -> dict[str, Any]:
     """Get current CPU, RAM, and disk usage statistics."""
+    import os
     import psutil
     cpu_percent = psutil.cpu_percent(interval=0.5)
     memory = psutil.virtual_memory()
     disk = psutil.disk_usage("C:\\") if os.name == "nt" else psutil.disk_usage("/")
-
-    import os
     return {
         "cpu_percent": cpu_percent,
         "cpu_count": psutil.cpu_count(),

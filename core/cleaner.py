@@ -23,7 +23,7 @@ def _is_protected(path: Path) -> bool:
 
 
 def _safe_remove(path: Path, logger: CleanerLogger) -> int:
-    """Safely remove a file or directory, returning bytes freed."""
+    """Safely remove a file or directory, returning bytes actually freed."""
     if _is_protected(path):
         logger.warning(f"Skipped protected path: {path}")
         return 0
@@ -31,14 +31,32 @@ def _safe_remove(path: Path, logger: CleanerLogger) -> int:
         if path.is_file():
             size = path.stat().st_size
             path.unlink()
-            return size
+            # Verify the file was actually deleted before reporting freed space
+            if not path.exists():
+                return size
+            logger.warning(f"File still exists after deletion attempt: {path}")
+            return 0
         elif path.is_dir():
-            size = sum(f.stat().st_size for f in path.rglob("*") if f.is_file())
-            shutil.rmtree(path, ignore_errors=True)
-            return size
+            # Measure size BEFORE attempting removal
+            try:
+                size_before = sum(f.stat().st_size for f in path.rglob("*") if f.is_file())
+            except (PermissionError, OSError):
+                size_before = 0
+            shutil.rmtree(path, ignore_errors=False)
+            return size_before
     except PermissionError:
         logger.warning(f"Permission denied: {path}")
     except Exception as e:
+        # Check if this was a directory that was partially removed
+        if path.is_dir() and path.exists():
+            try:
+                size_after = sum(f.stat().st_size for f in path.rglob("*") if f.is_file())
+                freed = size_before - size_after  # type: ignore[possibly-undefined]
+                if freed > 0:
+                    logger.warning(f"Partial deletion of {path}: freed {freed} bytes, {e}")
+                    return freed
+            except Exception:
+                pass
         logger.error(f"Error removing {path}: {e}")
     return 0
 

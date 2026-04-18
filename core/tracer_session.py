@@ -31,10 +31,23 @@ def _snapshot_pids():
 
 
 def _get_modules(pid: int) -> set:
-    """Return set of loaded DLL/module paths for a PID."""
+    """Return set of loaded DLL/module paths for a PID.
+
+    Uses memory_maps() on supported platforms; falls back to an empty set
+    (with a distinct sentinel) so callers can distinguish 'no modules' from
+    'access denied'.  Returns the empty set on any error so existing logic
+    stays compatible.
+    """
     try:
         proc = psutil.Process(pid)
-        return {m.path.lower() for m in proc.memory_maps()}
+        # memory_maps() raises AccessDenied when the process belongs to
+        # another user or when the process has already exited.
+        maps = proc.memory_maps()
+        return {m.path.lower() for m in maps if m.path}
+    except psutil.NoSuchProcess:
+        return set()
+    except psutil.AccessDenied:
+        return set()
     except Exception:
         return set()
 
@@ -165,6 +178,7 @@ class TracerSession:
             # DLL snapshot for target process
             target_pid: int | None = None
             prev_dlls: set = set()
+            dll_access_denied_warned = False
 
             if self.target_process:
                 for pid, name in prev_pids.items():
@@ -183,19 +197,36 @@ class TracerSession:
                         if pid not in prev_pids:
                             entry = {"pid": pid, "name": name, "time": _ts()}
                             self.new_processes.append(entry)
-                            self.event_queue.put({"type": "PROC+", "path": f"{name} (PID {pid})", "time": entry["time"]})
+                            self.event_queue.put({
+                                "type": "PROC+",
+                                "path": f"{name} (PID {pid})",
+                                "time": entry["time"],
+                            })
 
                     # killed processes
                     for pid, name in prev_pids.items():
                         if pid not in cur_pids:
                             entry = {"pid": pid, "name": name, "time": _ts()}
                             self.killed_processes.append(entry)
-                            self.event_queue.put({"type": "PROC-", "path": f"{name} (PID {pid})", "time": entry["time"]})
+                            self.event_queue.put({
+                                "type": "PROC-",
+                                "path": f"{name} (PID {pid})",
+                                "time": entry["time"],
+                            })
 
                     # find / re-find target process
                     if self.target_process:
                         if target_pid and target_pid not in cur_pids:
-                            target_pid = None   # process died
+                            # Target process died — log and reset
+                            self.event_queue.put({
+                                "type": "TARGET",
+                                "path": f"Target process exited (PID {target_pid}), waiting to re-appear...",
+                                "time": _ts(),
+                            })
+                            target_pid = None
+                            prev_dlls = set()
+                            dll_access_denied_warned = False
+
                         if not target_pid:
                             for pid, name in cur_pids.items():
                                 if name.lower() == self.target_process:
@@ -211,6 +242,14 @@ class TracerSession:
                         # DLL injection check
                         if target_pid:
                             cur_dlls = _get_modules(target_pid)
+                            if not cur_dlls and not prev_dlls and not dll_access_denied_warned:
+                                # Warn once: we may not have permission to read modules
+                                self.event_queue.put({
+                                    "type": "TARGET",
+                                    "path": f"WARNING: Cannot read modules for PID {target_pid} (run as admin for DLL monitoring)",
+                                    "time": _ts(),
+                                })
+                                dll_access_denied_warned = True
                             new_dlls = cur_dlls - prev_dlls
                             for dll in new_dlls:
                                 entry = {"pid": target_pid, "dll": dll, "time": _ts()}
@@ -223,10 +262,12 @@ class TracerSession:
                             prev_dlls = cur_dlls
 
                     prev_pids = cur_pids
-                except Exception:
-                    pass
+                except psutil.AccessDenied as e:
+                    self.logger.warning(f"Process monitor: access denied — {e}")
+                except Exception as e:
+                    self.logger.warning(f"Process monitor error: {e}")
 
-        t = threading.Thread(target=run, daemon=True)
+        t = threading.Thread(target=run, daemon=True, name="ProcessMonitor")
         t.start()
         self._threads.append(t)
 
@@ -251,10 +292,12 @@ class TracerSession:
                             "time": entry["time"],
                         })
                     prev = cur
-                except Exception:
-                    pass
+                except psutil.AccessDenied as e:
+                    self.logger.warning(f"Network monitor: access denied — {e}")
+                except Exception as e:
+                    self.logger.warning(f"Network monitor error: {e}")
 
-        t = threading.Thread(target=run, daemon=True)
+        t = threading.Thread(target=run, daemon=True, name="NetworkMonitor")
         t.start()
         self._threads.append(t)
 

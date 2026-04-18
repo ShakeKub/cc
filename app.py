@@ -96,6 +96,7 @@ MENU = [
     ("2",  "Quick Clean"),
     ("3",  "Standard Clean"),
     ("4",  "Deep Clean"),
+    ("17", "Team Clean  [ALL-IN-ONE]"),
     ("5",  "Browser Tools"),
     ("6",  "Process Manager"),
     ("7",  "Network Tools"),
@@ -162,6 +163,7 @@ def main_menu(logger: CleanerLogger):
         elif choice == "14": menu_uninstaller(logger)
         elif choice == "15": menu_scheduler(logger)
         elif choice == "16": menu_logs(logger)
+        elif choice == "17": menu_team_clean(logger)
         else:
             err("Unknown option.")
             pause()
@@ -183,6 +185,26 @@ def menu_scan(logger: CleanerLogger):
         ok(f"Total cleanable: {fmt_bytes(results.get('temp_size', 0))}")
     except Exception as e:
         err(f"Scan failed: {e}")
+
+    # Suspicious process check
+    info("Checking for suspicious processes...")
+    try:
+        from core.process import list_processes
+        procs = list_processes(sort_by="memory", logger=logger)
+        suspicious = [p for p in procs if p.get("suspicious")]
+        if suspicious:
+            sep()
+            warn(f"Found {len(suspicious)} suspicious process(es):")
+            for p in suspicious:
+                reasons = p["suspicious"].get("reasons", [])
+                risk = p["suspicious"].get("risk", "?")
+                rc = R if risk == "high" else Y
+                print(f"  {rc}[{risk.upper()}]{RST}  {p['name']:<28} PID {p['pid']:>7}  {', '.join(reasons[:2])}")
+        else:
+            ok("No suspicious processes detected.")
+    except Exception as e:
+        warn(f"Process check skipped: {e}")
+
     pause()
 
 
@@ -198,15 +220,35 @@ def menu_clean(logger: CleanerLogger, profile: str):
         return
     info("Cleaning...")
     try:
+        import psutil, json
         from core.cleaner import clean_all
-        import json
+
+        # Snapshot disk usage BEFORE cleaning so we can show real delta
+        disk_root = "C:\\" if os.name == "nt" else "/"
+        try:
+            disk_before = psutil.disk_usage(disk_root).free
+        except Exception:
+            disk_before = None
+
         cfg_path = Path(__file__).parent / "config.json"
         cfg = json.loads(cfg_path.read_text(encoding="utf-8")) if cfg_path.exists() else {}
         p = cfg.get("cleaning_profiles", {}).get(profile)
         results = clean_all(logger, p)
-        freed = results.get("total_freed", 0)
+        freed_reported = results.get("total_freed", 0)
+
+        # Measure real disk delta for honest reporting
+        try:
+            disk_after = psutil.disk_usage(disk_root).free
+            disk_delta = disk_after - disk_before if disk_before is not None else 0
+        except Exception:
+            disk_delta = 0
+
         sep()
-        ok(f"Done! Freed: {fmt_bytes(freed)}")
+        ok(f"Done! Files cleaned: {fmt_bytes(freed_reported)}")
+        if disk_delta > 0:
+            ok(f"Disk space gained : {fmt_bytes(disk_delta)}  (measured on {disk_root})")
+        elif disk_before is not None:
+            info("Disk free space unchanged (files may be in use or already freed by OS)")
         for name, size in results.get("actions", []):
             display = fmt_bytes(size) if size else "done"
             print(f"    {name:<35} {display}")
@@ -282,11 +324,27 @@ def menu_process(logger: CleanerLogger):
             pause()
             break
 
-        print(f"\n  {C}[k]{RST} Kill PID   {C}[r]{RST} Refresh   {C}[0]{RST} Back")
+        print(f"\n  {C}[k]{RST} Kill PID   {C}[f]{RST} Filter name   {C}[r]{RST} Refresh   {C}[0]{RST} Back")
         sep()
         c = prompt()
         if c == "0": break
         elif c == "r": continue
+        elif c == "f":
+            name_filter = prompt("Filter by name (Enter to clear): ").strip().lower()
+            if name_filter:
+                try:
+                    from core.process import list_processes
+                    all_procs = list_processes(sort_by="memory", logger=logger)
+                    filtered = [p for p in all_procs if name_filter in p["name"].lower()]
+                    sep()
+                    for p in filtered:
+                        flags = ""
+                        if p.get("suspicious"): flags += f" {R}SUS{RST}"
+                        print(f"  {p['pid']:>7}  {p['name']:<28}  {p['cpu_percent']:>5.1f}%  {fmt_bytes(p['memory_bytes']):>10}  {p['status']}{flags}")
+                    info(f"Found {len(filtered)} processes matching '{name_filter}'")
+                except Exception as e:
+                    err(str(e))
+            pause()
         elif c == "k":
             pid_str = prompt("Enter PID to kill: ")
             try:
@@ -540,18 +598,21 @@ def menu_registry(logger: CleanerLogger):
             warn("Fix all invalid registry entries?")
             if prompt("Type YES: ").upper() == "YES":
                 try:
-                    from core.registry import scan_invalid_entries, fix_invalid_entries
+                    from core.registry import scan_invalid_entries, fix_all_invalid
                     entries = scan_invalid_entries(logger)
-                    fixed = fix_invalid_entries(entries, logger)
-                    ok(f"Fixed {fixed} entries.")
+                    results = fix_all_invalid(entries, logger)
+                    ok(f"Fixed {results['fixed']}  Failed {results['failed']}  Skipped {results['skipped']}")
                 except Exception as e:
                     err(str(e))
             pause()
         elif c == "3":
             try:
                 from core.registry import backup_registry
-                path = backup_registry(logger)
-                ok(f"Backup saved: {path}")
+                path = backup_registry(logger=logger)
+                if path:
+                    ok(f"Backup saved: {path}")
+                else:
+                    err("Backup failed (reg.exe returned non-zero).")
             except Exception as e:
                 err(str(e))
             pause()
@@ -583,8 +644,8 @@ def menu_optimizer(logger: CleanerLogger):
             pause()
         elif c == "2":
             try:
-                from core.optimizer import get_optimizable_services
-                svcs = get_optimizable_services(logger)
+                from core.optimizer import list_optimizable_services
+                svcs = list_optimizable_services(logger)
                 sep()
                 print(f"  {'#':>3}  {'Service':<35}  {'Status':<10}  {'Impact':<8}  Category")
                 sep("-")
@@ -619,11 +680,19 @@ def menu_optimizer(logger: CleanerLogger):
                 err(str(e))
             pause()
         elif c == "6":
-            plan = prompt("Plan name (Balanced / High performance / Power saver): ")
-            if plan:
+            plan_name = prompt("Plan name (Balanced / High performance / Power saver): ")
+            if plan_name:
                 try:
-                    from core.optimizer import switch_power_plan
-                    ok("Switched.") if switch_power_plan(plan, logger) else err("Failed.")
+                    from core.optimizer import get_power_plans, set_power_plan
+                    plans = get_power_plans(logger)
+                    match = next(
+                        (p for p in plans if plan_name.lower() in p["name"].lower()),
+                        None,
+                    )
+                    if match:
+                        ok("Switched.") if set_power_plan(match["guid"], logger) else err("Failed.")
+                    else:
+                        err(f"Plan not found: '{plan_name}'. Use [5] to list available plans.")
                 except Exception as e:
                     err(str(e))
             pause()
@@ -659,9 +728,13 @@ def menu_privacy(logger: CleanerLogger):
             warn("Toggle telemetry settings?")
             if prompt("Type YES: ").upper() == "YES":
                 try:
-                    from core.privacy import disable_telemetry
-                    disable_telemetry(logger)
-                    ok("Telemetry settings changed.")
+                    from core.privacy import disable_all_telemetry
+                    results = disable_all_telemetry(logger)
+                    success_count = sum(1 for v in results.values() if v)
+                    ok(f"Disabled {success_count}/{len(results)} telemetry settings.")
+                    for name, success in results.items():
+                        sym = f"{G}OK{RST}" if success else f"{R}FAIL{RST}"
+                        print(f"    [{sym}] {name}")
                 except Exception as e:
                     err(str(e))
             pause()
@@ -941,8 +1014,8 @@ def menu_uninstaller(logger: CleanerLogger):
     header("Uninstaller")
     info("Loading installed programs...")
     try:
-        from core.uninstaller import list_programs
-        programs = list_programs(logger)
+        from core.uninstaller import list_installed_programs
+        programs = list_installed_programs(logger)
     except Exception as e:
         err(str(e))
         pause()
@@ -998,8 +1071,8 @@ def menu_scheduler(logger: CleanerLogger):
         if c == "0": break
         elif c == "1":
             try:
-                from core.scheduler import list_tasks
-                tasks = list_tasks(logger)
+                from core.scheduler import list_scheduled_tasks
+                tasks = list_scheduled_tasks(logger)
                 sep()
                 print(f"  {'Name':<20}  {'Schedule':<12}  {'Profile':<12}  Status")
                 sep("-")
@@ -1016,9 +1089,8 @@ def menu_scheduler(logger: CleanerLogger):
             profile  = prompt("Profile (quick/standard/deep): ")
             if name and schedule:
                 try:
-                    from core.scheduler import create_task
-                    create_task(name, schedule, profile or "standard", logger)
-                    ok("Task created.")
+                    from core.scheduler import create_scheduled_task
+                    ok("Task created.") if create_scheduled_task(name, schedule, profile or "standard", logger) else err("Failed to create task.")
                 except Exception as e:
                     err(str(e))
             pause()
@@ -1027,18 +1099,103 @@ def menu_scheduler(logger: CleanerLogger):
             if name:
                 try:
                     if c == "3":
-                        from core.scheduler import toggle_task
-                        toggle_task(name, logger)
-                        ok("Toggled.")
+                        from core.scheduler import list_scheduled_tasks, toggle_scheduled_task
+                        tasks = list_scheduled_tasks(logger)
+                        task = next((t for t in tasks if t.get("name") == name), None)
+                        if task:
+                            new_state = not task.get("enabled", True)
+                            ok("Toggled.") if toggle_scheduled_task(name, new_state, logger) else err("Failed.")
+                        else:
+                            err(f"Task '{name}' not found.")
                     else:
                         warn(f"Delete task '{name}'?")
                         if prompt("Type YES: ").upper() == "YES":
-                            from core.scheduler import delete_task
-                            delete_task(name, logger)
-                            ok("Deleted.")
+                            from core.scheduler import delete_scheduled_task
+                            ok("Deleted.") if delete_scheduled_task(name, logger) else err("Failed.")
                 except Exception as e:
                     err(str(e))
             pause()
+
+
+# ── 17. TEAM CLEAN ──────────────────────────────────────────
+
+def menu_team_clean(logger: CleanerLogger):
+    """All-in-one comprehensive clean: deep system + browsers + tracking files."""
+    header("Team Clean — All-in-One")
+    print(f"  This will run:")
+    print(f"    {G}•{RST} Deep system clean   (temp, WU cache, logs, DNS, thumbnails)")
+    print(f"    {G}•{RST} All-browser clean   (cache, cookies)")
+    print(f"    {G}•{RST} Privacy clean       (tracking files, activity history)")
+    sep()
+    warn("ALL cleanable data will be removed. This cannot be undone.")
+    confirm = prompt("Type YES to start: ")
+    if confirm.upper() != "YES":
+        info("Cancelled.")
+        pause()
+        return
+
+    import psutil, json
+    disk_root = "C:\\" if os.name == "nt" else "/"
+    try:
+        disk_before = psutil.disk_usage(disk_root).free
+    except Exception:
+        disk_before = None
+
+    total_freed = 0
+
+    # ── 1. Deep system clean ────────────────────────────────
+    info("[1/3] Deep system clean...")
+    try:
+        from core.cleaner import clean_all
+        cfg_path = Path(__file__).parent / "config.json"
+        cfg = json.loads(cfg_path.read_text(encoding="utf-8")) if cfg_path.exists() else {}
+        deep_profile = cfg.get("cleaning_profiles", {}).get("deep")
+        results = clean_all(logger, deep_profile)
+        freed = results.get("total_freed", 0)
+        total_freed += freed
+        ok(f"System clean done  — {fmt_bytes(freed)}")
+        for name, size in results.get("actions", []):
+            if size:
+                print(f"      {name:<30} {fmt_bytes(size)}")
+    except Exception as e:
+        err(f"System clean failed: {e}")
+
+    # ── 2. Browser clean ────────────────────────────────────
+    info("[2/3] Browser clean (cache + cookies)...")
+    try:
+        from core.browser import clean_all_browsers
+        browser_results = clean_all_browsers(logger, cache=True, cookies=True, history=False)
+        browser_freed = sum(sum(v.values()) for v in browser_results.values() if isinstance(v, dict))
+        total_freed += browser_freed
+        ok(f"Browser clean done — {fmt_bytes(browser_freed)}")
+    except Exception as e:
+        err(f"Browser clean failed: {e}")
+
+    # ── 3. Privacy / tracking clean ─────────────────────────
+    info("[3/3] Privacy clean (tracking files)...")
+    try:
+        from core.privacy import clean_tracking_files
+        privacy_freed = clean_tracking_files(logger)
+        total_freed += privacy_freed
+        ok(f"Privacy clean done — {fmt_bytes(privacy_freed)}")
+    except Exception as e:
+        err(f"Privacy clean failed: {e}")
+
+    # ── Summary ─────────────────────────────────────────────
+    sep("═")
+    ok(f"Team Clean complete!")
+    print(f"  Files cleaned (reported) : {fmt_bytes(total_freed)}")
+    try:
+        disk_after = psutil.disk_usage(disk_root).free
+        disk_delta = disk_after - disk_before if disk_before is not None else 0
+        if disk_delta > 0:
+            ok(f"Disk space actually gained: {fmt_bytes(disk_delta)}")
+        else:
+            info("Disk free space unchanged — files may still be cached by OS")
+    except Exception:
+        pass
+    sep("═")
+    pause()
 
 
 # ── 16. LOGS ────────────────────────────────────────────────

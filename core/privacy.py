@@ -129,6 +129,14 @@ def disable_telemetry(setting_name: str, logger: CleanerLogger) -> bool:
         return False
 
 
+def disable_all_telemetry(logger: CleanerLogger) -> dict[str, bool]:
+    """Disable all telemetry settings. Returns {setting_name: success}."""
+    results = {}
+    for name in TELEMETRY_SETTINGS:
+        results[name] = disable_telemetry(name, logger)
+    return results
+
+
 def enable_telemetry(setting_name: str, logger: CleanerLogger) -> bool:
     """Re-enable a telemetry setting."""
     config = TELEMETRY_SETTINGS.get(setting_name)
