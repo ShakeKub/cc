@@ -1,0 +1,12 @@
+{
+  "stats": {
+    "session_start": "2026-04-19T17:24:30.483608",
+    "duration_seconds": 4.136527,
+    "total_freed_bytes": 0,
+    "total_freed_readable": "0.0 B",
+    "actions_taken": 0,
+    "errors": 0,
+    "categories": {}
+  },
+  "entries": []
+}

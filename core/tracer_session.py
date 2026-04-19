@@ -115,9 +115,9 @@ class TracerSession:
         self.is_running = True
         self.start_time = time.time()
         self.logger.log(
-            f"Tracer started: app='{self.app_name}' watch='{self.watch_path}' "
+            "tracer_start", "tracer",
+            f"app='{self.app_name}' watch='{self.watch_path}' "
             f"target='{self.target_process}' id={self.session_id}",
-            category="tracer",
         )
 
         self._start_file_watcher()
@@ -132,7 +132,7 @@ class TracerSession:
             self._observer.stop()
             self._observer.join()
         # threads are daemon — they die automatically
-        self.logger.log(f"Tracer stopped: {self.session_id}", category="tracer")
+        self.logger.log("tracer_stop", "tracer", f"session_id={self.session_id}")
         self._save_session()
 
     # ── file system ─────────────────────────────────────────
@@ -321,7 +321,7 @@ class TracerSession:
         }
         with open(self.session_file, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=4)
-        self.logger.log(f"Session saved: {self.session_file}", category="tracer")
+        self.logger.log("tracer_save", "tracer", f"file={self.session_file}")
 
     def get_created_files(self):
         return self.created_files

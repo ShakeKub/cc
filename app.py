@@ -106,8 +106,10 @@ MENU = [
     ("11", "Optimizer"),
     ("12", "Privacy & Security"),
     ("13", "App Tracer"),
+    ("18", "Scout Mode"),
     ("14", "Uninstaller"),
     ("15", "Scheduler"),
+    ("19", "System Health"),
     ("16", "Logs & Reports"),
     ("0",  "Exit"),
 ]
@@ -164,6 +166,8 @@ def main_menu(logger: CleanerLogger):
         elif choice == "15": menu_scheduler(logger)
         elif choice == "16": menu_logs(logger)
         elif choice == "17": menu_team_clean(logger)
+        elif choice == "18": menu_scout(logger)
+        elif choice == "19": menu_health(logger)
         else:
             err("Unknown option.")
             pause()
@@ -804,10 +808,10 @@ def menu_tracer(logger: CleanerLogger):
             sep()
             print(f"  {C}{B}App Tracer — setup{RST}")
             sep()
-            print(f"  {DIM}Label    — libovolný název session (např. 'loader', 'cheat').{RST}")
-            print(f"  {DIM}Watch    — složka k monitorování souborů (rekurzivně).{RST}")
-            print(f"  {DIM}Target   — exe název procesu pro DLL injection monitoring{RST}")
-            print(f"  {DIM}           (např. 'game.exe'). Nechej prázdné pro skip.{RST}")
+            print(f"  {DIM}Label  — session name (e.g. 'installer', 'myapp').{RST}")
+            print(f"  {DIM}Watch  — folder to monitor for file changes (recursive).{RST}")
+            print(f"  {DIM}Target — process exe name for DLL injection monitoring{RST}")
+            print(f"  {DIM}         (e.g. 'game.exe'). Leave blank to skip.{RST}")
             sep()
 
             app_name = prompt("Label session: ").strip()
@@ -821,7 +825,7 @@ def menu_tracer(logger: CleanerLogger):
                 pause()
                 continue
 
-            target_proc = prompt("Target process (např. game.exe) [Enter = skip]: ").strip() or None
+            target_proc = prompt("Target process (e.g. game.exe) [Enter = skip]: ").strip() or None
 
             current_session = TracerSession(app_name, str(profile_path), logger)
             current_session.start(watch_path=watch_path, target_process=target_proc)
@@ -834,7 +838,7 @@ def menu_tracer(logger: CleanerLogger):
             if target_proc:
                 print(f"  target: {Y}{target_proc}{RST}  (DLL injection monitoring ON)")
             sep("═")
-            print(f"  {DIM}Legenda:{RST}  "
+            print(f"  {DIM}Legend:{RST}  "
                   f"{G}FILE+{RST}=create  {Y}FILE~{RST}=modify  {R}FILE-{RST}=delete  "
                   f"{C}MOVE {RST}  "
                   f"{G}PROC+{RST}=new proc  {R}PROC-{RST}=killed  "
@@ -882,7 +886,7 @@ def menu_tracer(logger: CleanerLogger):
 
             current_session.stop()
             sep("═")
-            ok(f"Uloženo  |  "
+            ok(f"Saved  |  "
                f"files: {G}+{len(current_session.created_files)} ~{len(current_session.modified_files)} -{len(current_session.deleted_files)}{RST}  "
                f"procs: {G}+{len(current_session.new_processes)}{RST}  "
                f"DLLs: {R}{len(current_session.injected_dlls)}{RST}  "
@@ -902,7 +906,7 @@ def menu_tracer(logger: CleanerLogger):
         elif c == "3":
             sep()
             if not sessions:
-                warn("Žádné sessions.")
+                warn("No sessions found.")
             else:
                 print(f"  {'Session ID':<20}  {'Label':<18}  {'Target':<15}  F+  F~  F-  Pr  DL  Net")
                 sep("-")
@@ -953,7 +957,7 @@ def menu_tracer(logger: CleanerLogger):
                         for f in files[:30]:
                             print(f"    {f}")
                         if len(files) > 30:
-                            print(f"    {DIM}... a {len(files)-30} dalších{RST}")
+                            print(f"    {DIM}... and {len(files)-30} more{RST}")
             else:
                 err("Session nenalezena.")
             pause()
@@ -1011,39 +1015,87 @@ def menu_tracer(logger: CleanerLogger):
 # ── 14. UNINSTALLER ─────────────────────────────────────────
 
 def menu_uninstaller(logger: CleanerLogger):
-    header("Uninstaller")
+    while True:
+        header("Uninstaller")
+        print(f"  {C}[1]{RST} Installed programs")
+        print(f"  {C}[2]{RST} Built-in Windows apps (Teams, Xbox, Cortana…)")
+        print(f"  {C}[3]{RST} Find orphaned registry entries")
+        print(f"  {C}[0]{RST} Back")
+        sep()
+        c = prompt()
+        if c == "0":
+            break
+        elif c == "1":
+            _menu_uninstaller_programs(logger)
+        elif c == "2":
+            _menu_uninstaller_builtin(logger)
+        elif c == "3":
+            try:
+                from core.uninstaller import detect_orphaned_entries
+                info("Scanning for orphaned registry entries...")
+                orphans = detect_orphaned_entries(logger)
+                sep()
+                if not orphans:
+                    ok("No orphaned entries found.")
+                else:
+                    print(f"  {'#':>4}  {'Name':<40}  Publisher")
+                    sep("-")
+                    for i, p in enumerate(orphans[:30]):
+                        print(f"  {i+1:>4}  {p['name'][:40]:<40}  {p.get('publisher','')[:25]}")
+                    ok(f"Found {len(orphans)} orphaned entries")
+            except Exception as e:
+                err(str(e))
+            pause()
+
+
+def _menu_uninstaller_programs(logger: CleanerLogger):
+    """List and uninstall regular programs from registry."""
     info("Loading installed programs...")
     try:
         from core.uninstaller import list_installed_programs
-        programs = list_installed_programs(logger)
+        all_programs = list_installed_programs(logger)
     except Exception as e:
         err(str(e))
         pause()
         return
 
+    filtered = all_programs[:]
+    active_filter = ""
+
     while True:
-        header("Uninstaller")
+        header("Uninstaller — Programs")
+        display = filtered[:40]
         print(f"  {'#':>4}  {'Name':<35}  {'Version':<15}  {'Publisher'}")
         sep("-")
-        for i, p in enumerate(programs[:40]):
+        for i, p in enumerate(display):
             print(f"  {i+1:>4}  {p['name'][:35]:<35}  {p.get('version','')[:15]:<15}  {p.get('publisher','')[:25]}")
-        if len(programs) > 40:
-            print(f"  {DIM}... and {len(programs)-40} more{RST}")
+        if len(filtered) > 40:
+            print(f"  {DIM}... and {len(filtered)-40} more{RST}")
+        if active_filter:
+            info(f"Filter active: '{active_filter}'  ({len(filtered)} results)")
         sep()
-        print(f"  {C}[u #]{RST} Uninstall #   {C}[s word]{RST} Search   {C}[0]{RST} Back")
+        print(f"  {C}[u #]{RST} Uninstall #   {C}[s word]{RST} Search   {C}[r]{RST} Reset filter   {C}[0]{RST} Back")
         sep()
         cmd = prompt()
-        if cmd == "0": break
+        if cmd == "0":
+            break
+        if cmd == "r":
+            filtered = all_programs[:]
+            active_filter = ""
+            continue
         parts = cmd.split(None, 1)
-        if not parts: continue
+        if not parts:
+            continue
         if parts[0] == "s" and len(parts) > 1:
-            query = parts[1].lower()
-            programs = [p for p in programs if query in p["name"].lower()]
-            info(f"Showing {len(programs)} matches for '{parts[1]}'")
+            active_filter = parts[1]
+            query = active_filter.lower()
+            filtered = [p for p in all_programs if query in p["name"].lower()
+                        or query in p.get("publisher", "").lower()]
+            info(f"Showing {len(filtered)} matches for '{active_filter}'")
         elif parts[0] == "u" and len(parts) > 1:
             try:
                 idx = int(parts[1]) - 1
-                prog = programs[idx]
+                prog = filtered[idx]
                 warn(f"Uninstall '{prog['name']}'?")
                 if prompt("Type YES: ").upper() == "YES":
                     try:
@@ -1051,6 +1103,55 @@ def menu_uninstaller(logger: CleanerLogger):
                         ok("Uninstall started.") if uninstall_program(prog, logger) else err("Failed.")
                     except Exception as e:
                         err(str(e))
+            except (ValueError, IndexError):
+                err("Invalid number.")
+            pause()
+
+
+def _menu_uninstaller_builtin(logger: CleanerLogger):
+    """List and remove Windows built-in (AppX) applications."""
+    info("Querying installed built-in apps via PowerShell…")
+    try:
+        from core.uninstaller import list_builtin_apps, uninstall_builtin_app
+        apps = list_builtin_apps(logger)
+    except Exception as e:
+        err(str(e))
+        pause()
+        return
+
+    if not apps:
+        warn("No removable built-in apps found (or PowerShell unavailable).")
+        pause()
+        return
+
+    while True:
+        header("Uninstaller — Built-in Apps")
+        print(f"  {'#':>4}  {'Display Name':<30}  {'Version':<15}  Package Name")
+        sep("-")
+        for i, a in enumerate(apps):
+            print(f"  {i+1:>4}  {a['display_name'][:30]:<30}  {a.get('version','')[:15]:<15}  {a['package_name'][:35]}")
+        sep()
+        print(f"  {C}[r #]{RST} Remove #   {C}[ra #]{RST} Remove for all users   {C}[0]{RST} Back")
+        sep()
+        cmd = prompt()
+        if cmd == "0":
+            break
+        parts = cmd.split(None, 1)
+        if not parts:
+            continue
+        if parts[0] in ("r", "ra") and len(parts) > 1:
+            all_users = parts[0] == "ra"
+            try:
+                idx = int(parts[1]) - 1
+                app = apps[idx]
+                scope = "for all users" if all_users else "for current user"
+                warn(f"Remove '{app['display_name']}' {scope}?")
+                if prompt("Type YES: ").upper() == "YES":
+                    if uninstall_builtin_app(app, logger, all_users=all_users):
+                        ok(f"Removed '{app['display_name']}'.")
+                        apps.pop(idx)
+                    else:
+                        err("Removal failed. Check logs for details.")
             except (ValueError, IndexError):
                 err("Invalid number.")
             pause()
@@ -1230,6 +1331,309 @@ def menu_logs(logger: CleanerLogger):
                 sym = f"{G}✓{RST}" if e.get("success") else f"{R}✗{RST}"
                 print(f"  {ts}  [{sym}]  {e.get('action',''):<25}  {e.get('details','')[:50]}")
             pause()
+
+
+# ── 18. SCOUT MODE ──────────────────────────────────────────
+
+def menu_scout(logger: CleanerLogger):
+    """Scout Mode — deep real-time monitoring of a specific application."""
+    from core.scout import ScoutSession
+    profile_path = Path(__file__).parent / "profiles"
+    profile_path.mkdir(exist_ok=True)
+    current: ScoutSession | None = None
+
+    # Event type display config
+    TYPE_COLOR = {
+        "CREATE":        G,
+        "MODIFY":        Y,
+        "DELETE":        R,
+        "MOVE":          C,
+        "DOWNLOAD":      G,
+        "DOWNLOAD_UPDATE": Y,
+        "SPAWN":         G,
+        "EXIT":          DIM,
+        "TARGET_FOUND":  Y,
+        "CONNECT":       C,
+        "REG_ADD":       G,
+        "REG_ADD_KEY":   G,
+        "REG_MODIFY":    Y,
+        "REG_DELETE":    R,
+        "REG_DEL_KEY":   R,
+    }
+    TYPE_LABEL = {
+        "CREATE":        "FILE+  ",
+        "MODIFY":        "FILE~  ",
+        "DELETE":        "FILE-  ",
+        "MOVE":          "MOVE   ",
+        "DOWNLOAD":      "DL+    ",
+        "DOWNLOAD_UPDATE": "DL~  ",
+        "SPAWN":         "PROC+  ",
+        "EXIT":          "PROC-  ",
+        "TARGET_FOUND":  "TARGET ",
+        "CONNECT":       "NET    ",
+        "REG_ADD":       "REG+   ",
+        "REG_ADD_KEY":   "REG+K  ",
+        "REG_MODIFY":    "REG~   ",
+        "REG_DELETE":    "REG-   ",
+        "REG_DEL_KEY":   "REG-K  ",
+    }
+
+    while True:
+        header("Scout Mode")
+        if current and current.is_running:
+            s = current.get_summary()
+            print(f"  {G}[LIVE]{RST} Scouting {B}'{current.app_name}'{RST}")
+            print(f"  Files:{G}{s['file_events']}{RST}  "
+                  f"Reg:{Y}{s['registry_events']}{RST}  "
+                  f"Net:{C}{s['network_events']}{RST}  "
+                  f"Procs:{G}{s['process_events']}{RST}  "
+                  f"Downloads:{G}{s['download_events']}{RST}")
+        sep()
+        print(f"  {C}[1]{RST} Start Scout session  (live feed)")
+        print(f"  {C}[2]{RST} Stop active session")
+        print(f"  {C}[3]{RST} List saved sessions")
+        print(f"  {C}[4]{RST} View session report")
+        print(f"  {C}[5]{RST} Delete a session")
+        print(f"  {C}[0]{RST} Back")
+        sep()
+        c = prompt()
+
+        if c == "0":
+            if current and current.is_running:
+                current.stop()
+            break
+
+        elif c == "1":
+            if current and current.is_running:
+                warn("Already running a session. Stop it first [2].")
+                pause()
+                continue
+
+            clr()
+            sep()
+            print(f"  {C}{B}Scout Mode — setup{RST}")
+            sep()
+            print(f"  {DIM}Label    — session name (e.g. 'teams', 'installer').{RST}")
+            print(f"  {DIM}Watch    — folder to monitor for file changes (recursive).{RST}")
+            print(f"  {DIM}Target   — target process exe (e.g. 'Teams.exe') [optional].{RST}")
+            print(f"  {DIM}Monitors — files, registry (HKCU Run/Software), network,{RST}")
+            print(f"  {DIM}           downloads folder, and spawned processes.{RST}")
+            sep()
+
+            app_name = prompt("Session label: ").strip()
+            if not app_name:
+                continue
+
+            default_path = os.path.expanduser("~")
+            watch_path = prompt(f"Watch path [{default_path}]: ").strip() or default_path
+            if not os.path.isdir(watch_path):
+                err(f"Directory not found: {watch_path}")
+                pause()
+                continue
+
+            target_proc = prompt("Target process (e.g. Teams.exe) [Enter = skip]: ").strip() or None
+
+            current = ScoutSession(app_name, str(profile_path), logger)
+            current.start(watch_path=watch_path, target_process=target_proc)
+
+            clr()
+            sep("═")
+            print(f"  {G}{B}SCOUT MODE — LIVE{RST}  {B}{app_name}{RST}")
+            print(f"  watch : {watch_path}")
+            if target_proc:
+                print(f"  target: {Y}{target_proc}{RST}")
+            sep("═")
+            print(f"  {DIM}Legend:{RST}  "
+                  f"{G}FILE+{RST}=create  {Y}FILE~{RST}=modify  {R}FILE-{RST}=delete  {C}MOVE{RST}  "
+                  f"{G}PROC+{RST}=spawn  {G}DL+{RST}=download  "
+                  f"{C}NET{RST}=connect  {G}REG+{RST}=reg add  {Y}REG~{RST}=reg mod  {R}REG-{RST}=reg del")
+            sep()
+            print(f"  {DIM}Press Enter to stop{RST}\n")
+
+            stop_flag = threading.Event()
+
+            def _wait_enter():
+                try:
+                    input()
+                except Exception:
+                    pass
+                stop_flag.set()
+
+            threading.Thread(target=_wait_enter, daemon=True).start()
+
+            import queue as _q
+            while not stop_flag.is_set():
+                try:
+                    ev = current.event_queue.get(timeout=0.2)
+                    etype = ev.get("type", "")
+                    col   = TYPE_COLOR.get(etype, W)
+                    label = TYPE_LABEL.get(etype, f"{etype:<7}")
+                    path  = ev.get("path", "")
+                    dest  = ev.get("dest", "")
+                    extra = ""
+                    if etype == "DOWNLOAD_UPDATE":
+                        size = ev.get("size", 0)
+                        extra = f"  ({fmt_bytes(size)})" if size else ""
+                    elif etype == "CONNECT":
+                        extra = f"  [{ev.get('remote_host','')}]"
+                    elif etype == "SPAWN":
+                        extra = f"  pid={ev.get('pid','')} parent={ev.get('parent_pid','')}"
+                    elif etype in ("REG_ADD", "REG_MODIFY", "REG_DELETE"):
+                        extra = f"  val={str(ev.get('new_value', ev.get('value', '')))[:60]}"
+                    move_str = f"  →  {dest}" if dest else ""
+                    print(f"  {DIM}{ev['time']}{RST}  {col}{label}{RST}  {path}{move_str}{extra}")
+                except _q.Empty:
+                    pass
+
+            current.stop()
+            sep("═")
+            s = current.get_summary()
+            ok(f"Session saved — "
+               f"files:{G}{s['file_events']}{RST}  "
+               f"reg:{Y}{s['registry_events']}{RST}  "
+               f"net:{C}{s['network_events']}{RST}  "
+               f"procs:{G}{s['process_events']}{RST}  "
+               f"dl:{G}{s['download_events']}{RST}")
+            current = None
+            pause()
+
+        elif c == "2":
+            if current and current.is_running:
+                current.stop()
+                ok(f"Session stopped.")
+                current = None
+            else:
+                warn("No active session.")
+            pause()
+
+        elif c == "3":
+            sessions = ScoutSession.load_sessions(str(profile_path))
+            sep()
+            if not sessions:
+                warn("No Scout sessions found.")
+            else:
+                print(f"  {'Session ID':<20}  {'Label':<18}  {'Target':<15}  Files  Reg  Net  Procs  DL  Total")
+                sep("-")
+                for s in sessions:
+                    sm = s.get("summary", {})
+                    print(f"  {s.get('session_id',''):<20}  "
+                          f"{s.get('app_name',''):<18}  "
+                          f"{(s.get('target_process') or '-'):<15}  "
+                          f"{sm.get('file_events',0):>5}  "
+                          f"{sm.get('registry_events',0):>4}  "
+                          f"{sm.get('network_events',0):>4}  "
+                          f"{sm.get('process_events',0):>5}  "
+                          f"{sm.get('download_events',0):>4}  "
+                          f"{sm.get('total_events',0):>5}")
+            pause()
+
+        elif c == "4":
+            sessions = ScoutSession.load_sessions(str(profile_path))
+            sid = prompt("Session ID: ")
+            session = next((s for s in sessions if s.get("session_id") == sid), None)
+            if not session:
+                err("Session not found.")
+                pause()
+                continue
+
+            sep()
+            sm = session.get("summary", {})
+            ok(f"Scout Report — {session.get('app_name')}  [{sid}]")
+            print(f"  Duration : {sm.get('duration_s', 0):.1f} s")
+            print(f"  Watch    : {session.get('watch_path','')}")
+            print(f"  Target   : {session.get('target_process') or 'all processes'}")
+            sep()
+
+            sections = [
+                ("NETWORK CONNECTIONS",  "network_events",  C),
+                ("REGISTRY CHANGES",     "registry_events", Y),
+                ("DOWNLOADS",            "download_events", G),
+                ("PROCESSES SPAWNED",    "process_events",  G),
+                ("FILES CREATED/MODIFIED/DELETED", "file_events", W),
+            ]
+            for title, key, col in sections:
+                events = session.get(key, [])
+                if not events:
+                    continue
+                print(f"\n  {col}{title} ({len(events)}){RST}")
+                for ev in events[:25]:
+                    etype = ev.get("type", "")
+                    label = TYPE_LABEL.get(etype, f"{etype:<7}")
+                    ecol  = TYPE_COLOR.get(etype, W)
+                    extra = ""
+                    if etype == "CONNECT":
+                        host = ev.get("remote_host", ev.get("remote", ""))
+                        extra = f"  [{host}]"
+                    elif etype == "REG_MODIFY":
+                        extra = f"  {ev.get('old_value','')[:40]} => {ev.get('new_value','')[:40]}"
+                    elif etype == "SPAWN":
+                        extra = f"  pid={ev.get('pid','')} {ev.get('cmdline','')[:50]}"
+                    print(f"    {DIM}{ev.get('time','')}{RST}  {ecol}{label}{RST}  {ev.get('path','')[:70]}{extra}")
+                if len(events) > 25:
+                    print(f"    {DIM}... and {len(events)-25} more{RST}")
+            pause()
+
+        elif c == "5":
+            sessions = ScoutSession.load_sessions(str(profile_path))
+            sid = prompt("Session ID to delete: ")
+            f = profile_path / f"scout_{sid}.json"
+            if f.exists():
+                warn(f"Delete scout session '{sid}'?")
+                if prompt("Type YES: ").upper() == "YES":
+                    f.unlink()
+                    ok("Deleted.")
+            else:
+                err("Session not found.")
+            pause()
+
+
+# ── 19. SYSTEM HEALTH ───────────────────────────────────────
+
+def menu_health(logger: CleanerLogger):
+    """System Health Score — composite system health indicator."""
+    header("System Health")
+    info("Computing health score, please wait…")
+    try:
+        from core.health import get_health_score
+        result = get_health_score(logger)
+    except Exception as e:
+        err(f"Health check failed: {e}")
+        pause()
+        return
+
+    overall = result["overall_score"]
+    grade   = result["grade"]
+
+    # Color-code the grade
+    grade_color = G if grade in ("A",) else Y if grade in ("B", "C") else R
+
+    sep("═")
+    print(f"\n  Overall Health Score:  {grade_color}{B}{overall}/100  (Grade {grade}){RST}\n")
+    sep()
+
+    # Bar chart
+    bar_len = 40
+    filled  = int(overall / 100 * bar_len)
+    bar_col = G if overall >= 70 else Y if overall >= 45 else R
+    bar     = f"{bar_col}{'█' * filled}{'░' * (bar_len - filled)}{RST}"
+    print(f"  [{bar}]  {overall}%\n")
+    sep()
+
+    # Indicators table
+    print(f"  {'Indicator':<22}  {'Value':<40}  {'Score':>5}  Status")
+    sep("-")
+    for ind in result["indicators"]:
+        sc  = ind["score"]
+        sc_col = G if sc >= 70 else Y if sc >= 45 else R
+        print(f"  {ind['name']:<22}  {ind['value']:<40}  {sc_col}{sc:>5}{RST}  {ind['status']}")
+
+    sep()
+    print(f"  {Y}Recommendations:{RST}")
+    for rec in result["recommendations"]:
+        print(f"    {C}•{RST} {rec}")
+
+    sep("═")
+    pause()
 
 
 # ── ENTRY POINT ─────────────────────────────────────────────

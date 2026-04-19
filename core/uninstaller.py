@@ -1,11 +1,133 @@
 """Advanced uninstaller - list, uninstall, deep clean, batch operations."""
 
+import json
 import os
 import subprocess
 import winreg
 from pathlib import Path
 from typing import Any
 from core.logger import CleanerLogger
+
+
+# ── Built-in (AppX) apps ────────────────────────────────────────────────────
+
+BUILTIN_APPS: list[tuple[str, str]] = [
+    ("Microsoft Teams",          "MicrosoftTeams"),
+    ("Cortana",                  "Microsoft.549981C3F5F10"),
+    ("Xbox",                     "Microsoft.XboxApp"),
+    ("Xbox Game Bar",            "Microsoft.XboxGamingOverlay"),
+    ("Xbox Identity Provider",   "Microsoft.XboxIdentityProvider"),
+    ("Xbox Speech To Text",      "Microsoft.XboxSpeechToTextOverlay"),
+    ("Xbox Game Overlay",        "Microsoft.XboxGameOverlay"),
+    ("Mail and Calendar",        "microsoft.windowscommunicationsapps"),
+    ("Maps",                     "Microsoft.WindowsMaps"),
+    ("Movies & TV",              "Microsoft.ZuneVideo"),
+    ("Groove Music",             "Microsoft.ZuneMusic"),
+    ("Mixed Reality Portal",     "Microsoft.MixedReality.Portal"),
+    ("News",                     "Microsoft.BingNews"),
+    ("Weather",                  "Microsoft.BingWeather"),
+    ("Solitaire Collection",     "Microsoft.MicrosoftSolitaireCollection"),
+    ("OneNote",                  "Microsoft.Office.OneNote"),
+    ("Paint 3D",                 "Microsoft.MSPaint"),
+    ("3D Viewer",                "Microsoft.Microsoft3DViewer"),
+    ("Skype",                    "Microsoft.SkypeApp"),
+    ("Tips / Get Started",       "Microsoft.Getstarted"),
+    ("People",                   "Microsoft.People"),
+    ("Phone Link",               "Microsoft.YourPhone"),
+    ("Get Help",                 "Microsoft.GetHelp"),
+    ("Feedback Hub",             "Microsoft.WindowsFeedbackHub"),
+    ("Clipchamp",                "Clipchamp.Clipchamp"),
+    ("Sticky Notes",             "Microsoft.MicrosoftStickyNotes"),
+    ("Power Automate",           "Microsoft.PowerAutomateDesktop"),
+    ("Microsoft To Do",          "Microsoft.Todos"),
+    ("Bing Search",              "Microsoft.BingSearch"),
+    ("Quick Assist",             "MicrosoftCorporationII.QuickAssist"),
+]
+
+
+def list_builtin_apps(logger: CleanerLogger) -> list[dict[str, Any]]:
+    """Return installed Windows built-in (AppX) apps via PowerShell."""
+    try:
+        ps_cmd = (
+            "Get-AppxPackage | "
+            "Select-Object Name,PackageFullName,Version | "
+            "ConvertTo-Json -Compress"
+        )
+        result = subprocess.run(
+            ["powershell", "-NoProfile", "-NonInteractive", "-Command", ps_cmd],
+            capture_output=True, text=True, timeout=45,
+        )
+        if result.returncode != 0 or not result.stdout.strip():
+            logger.warning("PowerShell AppX query returned no data")
+            return []
+
+        raw = json.loads(result.stdout.strip())
+        packages: list[dict] = [raw] if isinstance(raw, dict) else raw
+
+        installed: list[dict[str, Any]] = []
+        for display_name, pkg_id in BUILTIN_APPS:
+            for pkg in packages:
+                pkg_name: str = pkg.get("Name", "")
+                if pkg_id.lower() in pkg_name.lower():
+                    installed.append({
+                        "display_name":       display_name,
+                        "package_name":       pkg_name,
+                        "package_full_name":  pkg.get("PackageFullName", ""),
+                        "version":            pkg.get("Version", ""),
+                        "type":               "builtin",
+                    })
+                    break
+
+        logger.info(f"Found {len(installed)} installed built-in apps")
+        return installed
+    except json.JSONDecodeError as exc:
+        logger.error(f"Failed to parse AppX package list: {exc}")
+        return []
+    except Exception as exc:
+        logger.error(f"Error listing built-in apps: {exc}")
+        return []
+
+
+def uninstall_builtin_app(app: dict, logger: CleanerLogger,
+                           all_users: bool = False) -> bool:
+    """Remove a Windows built-in AppX package using PowerShell."""
+    pkg_full = app.get("package_full_name", "")
+    pkg_name = app.get("package_name", "")
+    display  = app.get("display_name", pkg_name)
+
+    if not pkg_full and not pkg_name:
+        logger.error(f"No package identifier for: {display}")
+        return False
+
+    try:
+        if all_users:
+            ps_cmd = (
+                f'Get-AppxPackage -AllUsers -Name "{pkg_name}" '
+                f'| Remove-AppxPackage -AllUsers'
+            )
+        else:
+            identifier = pkg_full or pkg_name
+            ps_cmd = f'Remove-AppxPackage -Package "{identifier}"'
+
+        result = subprocess.run(
+            ["powershell", "-NoProfile", "-NonInteractive", "-Command", ps_cmd],
+            capture_output=True, text=True, timeout=120,
+        )
+        success = result.returncode == 0
+        logger.log(
+            "uninstall_builtin", "uninstaller",
+            f"{'Removed' if success else 'Failed to remove'} built-in app: {display}",
+            success=success,
+        )
+        if not success and result.stderr.strip():
+            logger.warning(f"PowerShell stderr: {result.stderr.strip()[:300]}")
+        return success
+    except subprocess.TimeoutExpired:
+        logger.error(f"Timeout removing built-in app: {display}")
+        return False
+    except Exception as exc:
+        logger.error(f"Error removing built-in app {display}: {exc}")
+        return False
 
 
 # Registry locations for installed programs

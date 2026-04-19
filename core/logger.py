@@ -1,11 +1,14 @@
 """Logging system with TXT/JSON export and cleaning reports."""
 
+import itertools
 import json
 import logging
 import os
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+
+_INSTANCE_COUNTER = itertools.count()
 
 
 class CleanerLogger:
@@ -19,9 +22,12 @@ class CleanerLogger:
         self.session_log: list[dict[str, Any]] = []
         self.session_start = datetime.now()
 
-        # Standard Python logger for file output
-        self._logger = logging.getLogger("SystemCleaner")
+        # Use a unique logger name per session to avoid duplicate handlers
+        # when CleanerLogger is instantiated more than once in the same process.
+        logger_name = f"SystemCleaner.{self.session_start.strftime('%Y%m%d_%H%M%S')}.{next(_INSTANCE_COUNTER)}"
+        self._logger = logging.getLogger(logger_name)
         self._logger.setLevel(logging.DEBUG)
+        self._logger.propagate = False
         handler = logging.FileHandler(
             self.log_dir / f"cleaner_{self.session_start.strftime('%Y%m%d_%H%M%S')}.log"
         )
