@@ -62,6 +62,48 @@ def prompt(text=""):
         return "q"
 
 
+def nav_prompt() -> str:
+    """
+    Prompt that also detects left/right/up/down arrow keys on Windows.
+    Returns '__next__' or '__prev__' for arrow keys, otherwise the typed string.
+    Falls back to regular prompt() on non-Windows.
+    """
+    if os.name == "nt":
+        try:
+            import msvcrt
+            print(f"  {Y}>{RST} ", end="", flush=True)
+            chars: list[str] = []
+            while True:
+                ch = msvcrt.getch()
+                if ch in (b"\xe0", b"\x00"):        # extended key prefix
+                    ch2 = msvcrt.getch()
+                    if ch2 in (b"M", b"P"):          # right / down → next page
+                        print()
+                        return "__next__"
+                    if ch2 in (b"K", b"H"):          # left / up → prev page
+                        print()
+                        return "__prev__"
+                    continue
+                if ch == b"\r":                      # Enter
+                    print()
+                    return "".join(chars).strip()
+                if ch == b"\x08":                    # Backspace
+                    if chars:
+                        chars.pop()
+                        print("\b \b", end="", flush=True)
+                    continue
+                if ch == b"\x03":                    # Ctrl-C
+                    raise KeyboardInterrupt
+                decoded = ch.decode("utf-8", errors="replace")
+                print(decoded, end="", flush=True)
+                chars.append(decoded)
+        except KeyboardInterrupt:
+            return "q"
+        except Exception:
+            pass
+    return prompt()
+
+
 def ok(msg):
     print(f"  {G}[+]{RST} {msg}")
 
@@ -83,6 +125,22 @@ def pause():
         input(f"\n  {DIM}{t('prompt.press_enter')}{RST}")
     except (KeyboardInterrupt, EOFError):
         pass
+
+
+def _parse_nums(s: str, upper: int) -> list[int]:
+    """
+    Parse comma- or space-separated 1-based numbers into valid 0-based indices.
+    Accepts '1,3,5', '1 3 5', or '1, 3, 5'. Silently drops out-of-range values.
+    """
+    indices = []
+    for tok in s.replace(",", " ").split():
+        try:
+            n = int(tok) - 1
+            if 0 <= n < upper:
+                indices.append(n)
+        except ValueError:
+            pass
+    return indices
 
 
 def fmt_bytes(b: int) -> str:
@@ -118,32 +176,34 @@ def _menu_categories():
             ("7",  t("menu.large_files")),
             ("8",  t("menu.empty_folders")),
             ("9",  t("menu.secure_wipe")),
+            ("10", t("menu.recovery")),
         ]),
         (t("cat.tools"), [
-            ("10", t("menu.browser_tools")),
-            ("11", t("menu.process_mgr")),
-            ("12", t("menu.network_tools")),
-            ("13", t("menu.startup_mgr")),
-            ("14", t("menu.disk_tools")),
-            ("15", t("menu.registry")),
-            ("16", t("menu.optimizer")),
-            ("17", t("menu.privacy")),
-            ("18", t("menu.uninstaller")),
-            ("19", t("menu.autoruns")),
-            ("20", t("menu.context_menu")),
+            ("11", t("menu.browser_tools")),
+            ("12", t("menu.process_mgr")),
+            ("13", t("menu.network_tools")),
+            ("14", t("menu.startup_mgr")),
+            ("15", t("menu.disk_tools")),
+            ("16", t("menu.registry")),
+            ("17", t("menu.optimizer")),
+            ("18", t("menu.privacy")),
+            ("19", t("menu.uninstaller")),
+            ("20", t("menu.autoruns")),
+            ("21", t("menu.context_menu")),
         ]),
         (t("cat.monitoring"), [
-            ("21", t("menu.app_tracer")),
-            ("22", t("menu.scout_mode")),
-            ("23", t("menu.health")),
-            ("24", t("menu.crash_logs")),
+            ("22", t("menu.app_tracer")),
+            ("23", t("menu.scout_mode")),
+            ("24", t("menu.health")),
+            ("25", t("menu.crash_logs")),
+            ("26", t("menu.disk_health")),
         ]),
         (t("cat.system"), [
-            ("25", t("menu.history_mgr")),
-            ("26", t("menu.restore_points")),
-            ("27", t("menu.scheduler")),
-            ("28", t("menu.logs")),
-            ("29", t("menu.language")),
+            ("27", t("menu.history_mgr")),
+            ("28", t("menu.restore_points")),
+            ("29", t("menu.scheduler")),
+            ("30", t("menu.logs")),
+            ("31", t("menu.language")),
         ]),
     ]
 
@@ -177,26 +237,28 @@ _DISPATCH = {
     "7":  lambda l: menu_large_files(l),
     "8":  lambda l: menu_empty_folders(l),
     "9":  lambda l: menu_secure_wipe(l),
-    "10": lambda l: menu_browser(l),
-    "11": lambda l: menu_process(l),
-    "12": lambda l: menu_network(l),
-    "13": lambda l: menu_startup(l),
-    "14": lambda l: menu_disk(l),
-    "15": lambda l: menu_registry(l),
-    "16": lambda l: menu_optimizer(l),
-    "17": lambda l: menu_privacy(l),
-    "18": lambda l: menu_uninstaller(l),
-    "19": lambda l: menu_autoruns(l),
-    "20": lambda l: menu_context_menu(l),
-    "21": lambda l: menu_tracer(l),
-    "22": lambda l: menu_scout(l),
-    "23": lambda l: menu_health(l),
-    "24": lambda l: menu_crash_logs(l),
-    "25": lambda l: menu_history(l),
-    "26": lambda l: menu_restore_points(l),
-    "27": lambda l: menu_scheduler(l),
-    "28": lambda l: menu_logs(l),
-    "29": lambda l: menu_language(l),
+    "10": lambda l: menu_recovery(l),
+    "11": lambda l: menu_browser(l),
+    "12": lambda l: menu_process(l),
+    "13": lambda l: menu_network(l),
+    "14": lambda l: menu_startup(l),
+    "15": lambda l: menu_disk(l),
+    "16": lambda l: menu_registry(l),
+    "17": lambda l: menu_optimizer(l),
+    "18": lambda l: menu_privacy(l),
+    "19": lambda l: menu_uninstaller(l),
+    "20": lambda l: menu_autoruns(l),
+    "21": lambda l: menu_context_menu(l),
+    "22": lambda l: menu_tracer(l),
+    "23": lambda l: menu_scout(l),
+    "24": lambda l: menu_health(l),
+    "25": lambda l: menu_crash_logs(l),
+    "26": lambda l: menu_disk_health(l),
+    "27": lambda l: menu_history(l),
+    "28": lambda l: menu_restore_points(l),
+    "29": lambda l: menu_scheduler(l),
+    "30": lambda l: menu_logs(l),
+    "31": lambda l: menu_language(l),
 }
 
 
@@ -396,12 +458,12 @@ def menu_process(logger: CleanerLogger):
             pause()
             break
 
-        print(f"\n  {C}[k]{RST} {t('proc.kill')}   {C}[f]{RST} {t('proc.filter')}   {C}[r]{RST} {t('proc.refresh')}   {C}[0]{RST} {t('menu.back')}")
+        print(f"\n  {C}[k 1,3]{RST} Kill by #   {C}[f]{RST} {t('proc.filter')}   {C}[r]{RST} {t('proc.refresh')}   {C}[0]{RST} {t('menu.back')}")
         sep()
-        c = prompt()
-        if c == "0": break
-        elif c == "r": continue
-        elif c == "f":
+        cmd = prompt()
+        if cmd == "0": break
+        elif cmd == "r": continue
+        elif cmd == "f":
             name_filter = prompt(t("proc.filter_ask")).strip().lower()
             if name_filter:
                 try:
@@ -417,18 +479,20 @@ def menu_process(logger: CleanerLogger):
                 except Exception as e:
                     err(str(e))
             pause()
-        elif c == "k":
-            pid_str = prompt(t("proc.pid_ask"))
-            try:
-                from core.process import kill_process
-                pid = int(pid_str)
-                warn(t("proc.kill_conf", pid=pid))
+        else:
+            parts = cmd.split(None, 1)
+            if parts and parts[0] == "k" and len(parts) > 1:
+                idxs = _parse_nums(parts[1], len(procs[:30]))
+                targets = [procs[:30][i] for i in idxs]
+                if not targets:
+                    err(t("proc.bad_pid")); pause(); continue
+                warn(f"Kill {len(targets)} process(es): " +
+                     ", ".join(f"{p['name']}({p['pid']})" for p in targets))
                 if prompt(t("prompt.type_yes")).upper() in ("YES", "ANO"):
-                    success = kill_process(pid, logger)
-                    ok(t("proc.killed", pid=pid)) if success else err(t("proc.kill_fail"))
-            except ValueError:
-                err(t("proc.bad_pid"))
-            pause()
+                    from core.process import kill_process
+                    killed = sum(1 for p in targets if kill_process(p["pid"], logger))
+                    ok(f"Killed {killed}/{len(targets)} process(es).")
+                pause()
 
 
 # ── 7. NETWORK ──────────────────────────────────────────────
@@ -486,9 +550,9 @@ def menu_network(logger: CleanerLogger):
                 from core.network import run_diagnostics
                 results = run_diagnostics(logger)
                 sep()
-                for t in results:
-                    sym = f"{G}PASS{RST}" if t["status"] == "pass" else f"{R}FAIL{RST}"
-                    print(f"  [{sym}] {t['test']:<30} {t.get('detail','')}")
+                for item in results:
+                    sym = f"{G}PASS{RST}" if item["status"] == "pass" else f"{R}FAIL{RST}"
+                    print(f"  [{sym}] {item['test']:<30} {item.get('detail','')}")
             except Exception as e:
                 err(str(e))
             pause()
@@ -518,28 +582,31 @@ def menu_startup(logger: CleanerLogger):
             print(f"  {i+1:>3}  {e['name']:<30}  {status:<10}  {icolor}{impact:<8}{RST}  {e.get('type','')}{flag}")
         sep()
         print(f"  {t('startup.total', count=len(entries))}")
-        print(f"\n  {C}[e #]{RST} {t('startup.enable')}   {C}[d #]{RST} {t('startup.disable')}   {C}[x #]{RST} {t('startup.remove')}   {C}[0]{RST} {t('menu.back')}")
+        print(f"\n  {C}[e 1,3]{RST} {t('startup.enable')}   {C}[d 1,3]{RST} {t('startup.disable')}   {C}[x 1,3]{RST} {t('startup.remove')}   {C}[0]{RST} {t('menu.back')}")
         sep()
         cmd = prompt()
         if cmd == "0": break
-        parts = cmd.split()
-        if len(parts) == 2 and parts[0] in ("e","d","x"):
-            try:
-                idx = int(parts[1]) - 1
-                entry = entries[idx]
-                if parts[0] == "e":
-                    from core.startup import enable_startup_entry
-                    ok(t("startup.enabled_ok", name=entry['name'])) if enable_startup_entry(entry, logger) else err(t("startup.failed"))
-                elif parts[0] == "d":
-                    from core.startup import disable_startup_entry
-                    ok(t("startup.disabled_ok", name=entry['name'])) if disable_startup_entry(entry, logger) else err(t("startup.failed"))
-                elif parts[0] == "x":
-                    warn(t("startup.rem_conf", name=entry['name']))
-                    if prompt(t("prompt.type_yes")).upper() in ("YES", "ANO"):
-                        from core.startup import remove_startup_entry
-                        ok(t("startup.removed")) if remove_startup_entry(entry, logger) else err(t("startup.failed"))
-            except (ValueError, IndexError):
-                err(t("startup.bad_num"))
+        parts = cmd.split(None, 1)
+        if len(parts) == 2 and parts[0] in ("e", "d", "x"):
+            idxs = _parse_nums(parts[1], len(entries))
+            if not idxs:
+                err(t("startup.bad_num")); pause(); continue
+            sel = [entries[i] for i in idxs]
+            if parts[0] == "e":
+                from core.startup import enable_startup_entry
+                done = sum(1 for entry in sel if enable_startup_entry(entry, logger))
+                ok(f"Enabled {done}/{len(sel)} entry/entries.")
+            elif parts[0] == "d":
+                from core.startup import disable_startup_entry
+                done = sum(1 for entry in sel if disable_startup_entry(entry, logger))
+                ok(f"Disabled {done}/{len(sel)} entry/entries.")
+            elif parts[0] == "x":
+                names = ", ".join(e["name"] for e in sel)
+                warn(f"Remove {len(sel)} startup entry/entries: {names[:80]}?")
+                if prompt(t("prompt.type_yes")).upper() in ("YES", "ANO"):
+                    from core.startup import remove_startup_entry
+                    done = sum(1 for entry in sel if remove_startup_entry(entry, logger))
+                    ok(f"Removed {done}/{len(sel)} entry/entries.")
             pause()
 
 
@@ -643,7 +710,7 @@ def menu_disk(logger: CleanerLogger):
 def menu_registry(logger: CleanerLogger):
     while True:
         header(t("hdr.registry"))
-        print(f"  {C}[1]{RST} {t('reg.scan')}")
+        print(f"  {C}[1]{RST} {t('reg.scan')}  +  fix selected  ({C}f 1,3{RST})")
         print(f"  {C}[2]{RST} {t('reg.fix_all')}")
         print(f"  {C}[3]{RST} {t('reg.backup')}")
         print(f"  {C}[0]{RST} {t('menu.back')}")
@@ -653,7 +720,7 @@ def menu_registry(logger: CleanerLogger):
         elif c == "1":
             info(t("reg.scanning"))
             try:
-                from core.registry import scan_invalid_entries
+                from core.registry import scan_invalid_entries, fix_selected_entries
                 entries = scan_invalid_entries(logger)
                 sep()
                 print(f"  {'#':>3}  {'Category':<20}  {'Entry':<30}  {'Issue':<30}  Risk")
@@ -663,6 +730,21 @@ def menu_registry(logger: CleanerLogger):
                     rc = G if risk=="low" else Y if risk=="medium" else R
                     print(f"  {i+1:>3}  {e.get('category',''):<20}  {e.get('value_name','')[:30]:<30}  {e.get('issue','')[:30]:<30}  {rc}{risk}{RST}")
                 ok(t("reg.found", count=len(entries)))
+                sep()
+                print(f"  {C}[f 1,3,5]{RST} Fix selected   {C}[Enter]{RST} Back")
+                sep()
+                fix_cmd = prompt()
+                fix_parts = fix_cmd.split(None, 1)
+                if fix_parts and fix_parts[0] == "f" and len(fix_parts) > 1:
+                    idxs = _parse_nums(fix_parts[1], len(entries[:30]))
+                    sel = [entries[:30][i] for i in idxs]
+                    if sel:
+                        warn(f"Fix {len(sel)} registry entry/entries?")
+                        if prompt(t("prompt.type_yes")).upper() in ("YES", "ANO"):
+                            results2 = fix_selected_entries(sel, logger)
+                            ok(t("reg.fixed", fixed=results2.get('fixed',0),
+                                 failed=results2.get('failed',0),
+                                 skipped=results2.get('skipped',0)))
             except Exception as e:
                 err(str(e))
             pause()
@@ -1088,7 +1170,8 @@ def menu_uninstaller(logger: CleanerLogger):
         header("Uninstaller")
         print(f"  {C}[1]{RST} Installed programs")
         print(f"  {C}[2]{RST} Built-in Windows apps (Teams, Xbox, Cortana…)")
-        print(f"  {C}[3]{RST} Find orphaned registry entries")
+        print(f"  {C}[3]{RST} {R}Remove ALL bloatware{RST}  (Teams, Xbox, Cortana, News, Maps…)")
+        print(f"  {C}[4]{RST} Find orphaned registry entries")
         print(f"  {C}[0]{RST} Back")
         sep()
         c = prompt()
@@ -1099,6 +1182,8 @@ def menu_uninstaller(logger: CleanerLogger):
         elif c == "2":
             _menu_uninstaller_builtin(logger)
         elif c == "3":
+            _menu_remove_all_bloatware(logger)
+        elif c == "4":
             try:
                 from core.uninstaller import detect_orphaned_entries
                 info("Scanning for orphaned registry entries...")
@@ -1115,6 +1200,58 @@ def menu_uninstaller(logger: CleanerLogger):
             except Exception as e:
                 err(str(e))
             pause()
+
+
+def _menu_remove_all_bloatware(logger: CleanerLogger):
+    """Bulk-remove all apps in BLOATWARE_IDS."""
+    header("Remove All Bloatware")
+    print(f"  This will attempt to remove:")
+    bloat_names = [
+        "Microsoft Teams", "Cortana", "Xbox (all components)", "Mail & Calendar",
+        "Maps", "Movies & TV", "Groove Music", "Mixed Reality Portal", "News",
+        "Weather", "Solitaire Collection", "OneNote", "Paint 3D", "3D Viewer",
+        "Skype", "Tips", "People", "Phone Link", "Get Help", "Feedback Hub",
+        "Clipchamp", "Power Automate", "Bing Search", "Quick Assist",
+        "MSN Sports/Finance", "Office Hub",
+    ]
+    for name in bloat_names:
+        print(f"    {R}•{RST} {name}")
+    sep()
+    warn("Microsoft Store and Calculator are NOT included (kept by default).")
+    warn("Admin rights required for full removal. Run as administrator for best results.")
+    sep()
+    scope_raw = prompt("Remove for [1] current user only  [2] ALL users  [0] Cancel: ").strip()
+    if scope_raw == "0" or not scope_raw:
+        return
+    all_users = scope_raw == "2"
+    scope_label = "all users" if all_users else "current user"
+    warn(f"Remove all bloatware for {scope_label}? This cannot be undone.")
+    if prompt(t("prompt.type_yes")).upper() not in ("YES", "ANO"):
+        info("Cancelled.")
+        pause()
+        return
+
+    info("Querying installed bloatware — this may take a minute…")
+    try:
+        from core.uninstaller import remove_all_bloatware
+        results = remove_all_bloatware(logger, all_users=all_users)
+    except Exception as e:
+        err(str(e))
+        pause()
+        return
+
+    sep()
+    removed = [name for name, ok2 in results.items() if ok2]
+    failed  = [name for name, ok2 in results.items() if not ok2]
+    for name in removed:
+        print(f"  {G}[+]{RST} Removed: {name}")
+    for name in failed:
+        print(f"  {R}[!]{RST} Failed:  {name}")
+    sep()
+    ok(f"Done — {len(removed)} removed, {len(failed)} failed.")
+    if failed:
+        warn("Failures may be due to missing packages or insufficient permissions.")
+    pause()
 
 
 def _menu_uninstaller_programs(logger: CleanerLogger):
@@ -1200,30 +1337,34 @@ def _menu_uninstaller_builtin(logger: CleanerLogger):
         for i, a in enumerate(apps):
             print(f"  {i+1:>4}  {a['display_name'][:30]:<30}  {a.get('version','')[:15]:<15}  {a['package_name'][:35]}")
         sep()
-        print(f"  {C}[r #]{RST} Remove #   {C}[ra #]{RST} Remove for all users   {C}[0]{RST} Back")
+        print(f"  {C}[r 1,3]{RST} Remove   {C}[ra 1,3]{RST} Remove for all users   {C}[0]{RST} Back")
         sep()
         cmd = prompt()
         if cmd == "0":
             break
         parts = cmd.split(None, 1)
-        if not parts:
+        if not parts or parts[0] not in ("r", "ra") or len(parts) < 2:
             continue
-        if parts[0] in ("r", "ra") and len(parts) > 1:
-            all_users = parts[0] == "ra"
-            try:
-                idx = int(parts[1]) - 1
-                app = apps[idx]
-                scope = "for all users" if all_users else "for current user"
-                warn(f"Remove '{app['display_name']}' {scope}?")
-                if prompt("Type YES: ").upper() == "YES":
-                    if uninstall_builtin_app(app, logger, all_users=all_users):
-                        ok(f"Removed '{app['display_name']}'.")
-                        apps.pop(idx)
-                    else:
-                        err("Removal failed. Check logs for details.")
-            except (ValueError, IndexError):
-                err("Invalid number.")
-            pause()
+        all_users = parts[0] == "ra"
+        idxs = _parse_nums(parts[1], len(apps))
+        if not idxs:
+            err("Invalid number."); pause(); continue
+        sel = [apps[i] for i in sorted(idxs, reverse=True)]  # reverse so pop() indices stay valid
+        scope = "for all users" if all_users else "for current user"
+        names = ", ".join(a["display_name"] for a in sel)
+        warn(f"Remove {len(sel)} app(s) {scope}: {names[:80]}?")
+        if prompt(t("prompt.type_yes")).upper() in ("YES", "ANO"):
+            removed = 0
+            for a in sel:
+                orig_idx = apps.index(a)
+                if uninstall_builtin_app(a, logger, all_users=all_users):
+                    ok(f"Removed '{a['display_name']}'.")
+                    apps.pop(orig_idx)
+                    removed += 1
+                else:
+                    err(f"Failed: '{a['display_name']}'.")
+            ok(f"Done — {removed}/{len(sel)} removed.")
+        pause()
 
 
 # ── 15. SCHEDULER ───────────────────────────────────────────
@@ -1705,6 +1846,211 @@ def menu_health(logger: CleanerLogger):
     pause()
 
 
+# ── DISK HEALTH ─────────────────────────────────────────────
+
+def menu_disk_health(logger: CleanerLogger):
+    header(t("menu.disk_health"))
+    info("Querying disk information — please wait…")
+    try:
+        from core.diskhealth import get_physical_disks, get_smart_counters, get_disk_partitions
+        disks   = get_physical_disks(logger)
+        smart   = get_smart_counters(logger)
+        parts   = get_disk_partitions(logger)
+    except Exception as e:
+        err(str(e)); pause(); return
+
+    sep("═")
+
+    # Physical disks
+    if disks:
+        print(f"  {B}Physical Disks{RST}")
+        sep("-")
+        for d in disks:
+            h = d["health"]
+            h_col = G if h == "Healthy" else Y if h == "Warning" else R
+            bar_total = 20
+            if d["size"]:
+                size_str = fmt_bytes(d["size"])
+            else:
+                size_str = "?"
+            print(f"  {B}{d['model']}{RST}")
+            print(f"    Type   : {d['media_type']}  ({d['bus']})")
+            print(f"    Size   : {size_str}")
+            print(f"    Health : {h_col}{h}{RST}  [{d['status']}]")
+            print()
+    else:
+        warn("Could not read physical disk info (admin rights may be required).")
+
+    # SMART counters
+    if smart:
+        print(f"  {B}SMART Reliability Counters{RST}")
+        sep("-")
+        for s in smart:
+            temp = f"{s['temperature']} °C" if s["temperature"] is not None else "N/A"
+            wear = f"{s['wear']}%" if s["wear"] is not None else "N/A"
+            temp_col = G if s["temperature"] is None or s["temperature"] < 45 else \
+                       Y if s["temperature"] < 55 else R
+            wear_col = G if s["wear"] is None or s["wear"] < 70 else \
+                       Y if s["wear"] < 90 else R
+            print(f"  Device {s['device_id'] or 'unknown'}")
+            print(f"    Temperature  : {temp_col}{temp}{RST}")
+            print(f"    SSD Wear     : {wear_col}{wear}{RST}")
+            print(f"    Read errors  : {s['read_errors']}  (corrected: {s['read_corrected']})")
+            print(f"    Write errors : {s['write_errors']}")
+            print(f"    Power-on hrs : {s['power_hours']}")
+            if s["start_stop"]:
+                print(f"    Start/Stop   : {s['start_stop']}")
+            if s["load_unload"]:
+                print(f"    Load/Unload  : {s['load_unload']}")
+            print()
+    else:
+        warn("SMART data unavailable (requires admin + Storage cmdlets).")
+
+    # Partitions
+    if parts:
+        sep()
+        print(f"  {B}Partitions / Drives{RST}")
+        sep("-")
+        BAR = 30
+        for p in parts:
+            filled = int(p["pct"] / 100 * BAR)
+            bar_col = G if p["pct"] < 75 else Y if p["pct"] < 90 else R
+            bar = f"{bar_col}{'█' * filled}{'░' * (BAR - filled)}{RST}"
+            print(f"  {C}{p['letter']}:{RST}  [{bar}] {p['pct']}%  "
+                  f"free {fmt_bytes(p['free'])} / {fmt_bytes(p['total'])}"
+                  + (f"  {DIM}{p['label']}{RST}" if p["label"] else ""))
+
+    sep("═")
+    pause()
+
+
+# ── FILE RECOVERY ────────────────────────────────────────────
+
+def menu_recovery(logger: CleanerLogger):
+    while True:
+        header(t("menu.recovery"))
+        print(f"  {C}[1]{RST} Recycle Bin — browse and restore")
+        print(f"  {C}[2]{RST} Shadow Copy (VSS) — restore a file from a snapshot")
+        print(f"  {C}[0]{RST} {t('menu.back')}")
+        sep()
+        c = prompt()
+        if c == "0":
+            break
+
+        elif c == "1":
+            _menu_recovery_recycle(logger)
+
+        elif c == "2":
+            _menu_recovery_shadow(logger)
+
+
+def _menu_recovery_recycle(logger: CleanerLogger):
+    while True:
+        header("Recovery — Recycle Bin")
+        info("Loading Recycle Bin contents…")
+        try:
+            from core.recovery import get_recycle_bin_items, restore_recycle_item, restore_all_recycle, empty_recycle_bin
+            items = get_recycle_bin_items(logger)
+        except Exception as e:
+            err(str(e)); pause(); return
+
+        sep()
+        if not items:
+            ok("Recycle Bin is empty.")
+            pause()
+            return
+
+        total_sz = sum(i["size"] for i in items)
+        print(f"  {len(items)} item(s)  —  {fmt_bytes(total_sz)} total")
+        sep("-")
+        print(f"  {'#':>4}  {'Size':>10}  {'Deleted':>20}  {'Type':<15}  Name")
+        sep("-")
+        for i, item in enumerate(items[:50]):
+            print(f"  {i+1:>4}  {fmt_bytes(item['size']):>10}  {item['date']:>20}  "
+                  f"{item['type'][:15]:<15}  {item['name'][:40]}")
+        if len(items) > 50:
+            print(f"  {DIM}… {len(items)-50} more{RST}")
+        sep()
+        print(f"  {C}[r 1,3]{RST} Restore   {C}[ra]{RST} Restore all   "
+              f"{C}[empty]{RST} Empty bin   {C}[0]{RST} Back")
+        sep()
+        cmd = prompt()
+        if cmd == "0":
+            break
+        if cmd.lower() == "ra":
+            warn(f"Restore ALL {len(items)} item(s) to their original locations?")
+            if prompt(t("prompt.type_yes")).upper() in ("YES", "ANO"):
+                restore_all_recycle(logger)
+                ok("All items restored.")
+            pause()
+            continue
+        if cmd.lower() == "empty":
+            warn(f"Permanently delete ALL {len(items)} item(s) from the Recycle Bin?")
+            if prompt(t("prompt.type_yes")).upper() in ("YES", "ANO"):
+                empty_recycle_bin(logger)
+                ok("Recycle Bin emptied.")
+            pause()
+            break
+        parts = cmd.split(None, 1)
+        if parts and parts[0] == "r" and len(parts) > 1:
+            idxs = _parse_nums(parts[1], len(items))
+            if not idxs:
+                err("Invalid number.")
+            else:
+                for i in idxs:
+                    restore_recycle_item(items[i], logger)
+                ok(f"Restore command sent for {len(idxs)} item(s).")
+            pause()
+
+
+def _menu_recovery_shadow(logger: CleanerLogger):
+    header("Recovery — Shadow Copies (VSS)")
+    info("Loading available shadow copies…")
+    try:
+        from core.recovery import get_shadow_copies, restore_from_shadow
+        shadows = get_shadow_copies(logger)
+    except Exception as e:
+        err(str(e)); pause(); return
+
+    if not shadows:
+        warn("No shadow copies found. Enable System Restore or Windows Backup to create snapshots.")
+        pause()
+        return
+
+    sep()
+    for i, s in enumerate(shadows):
+        print(f"  {C}[{i+1}]{RST}  {s['date']}  {s['volume']}")
+    sep()
+    choice = prompt("Select shadow copy number: ").strip()
+    try:
+        idx = int(choice) - 1
+        shadow = shadows[idx]
+    except (ValueError, IndexError):
+        err("Invalid number.")
+        pause()
+        return
+
+    sep()
+    info(f"Selected: {shadow['date']}  {shadow['volume']}")
+    file_path = prompt("File path relative to volume root (e.g. Users\\alice\\doc.txt): ").strip()
+    if not file_path:
+        return
+
+    dest = prompt("Destination folder for recovered file [Desktop]: ").strip()
+    if not dest:
+        dest = os.path.join(os.path.expanduser("~"), "Desktop")
+
+    info(f"Recovering '{file_path}' from shadow {shadow['date']}…")
+    try:
+        if restore_from_shadow(shadow, file_path, dest, logger):
+            ok(f"File recovered to: {dest}")
+        else:
+            err(f"File not found in this shadow copy: {file_path}")
+    except Exception as e:
+        err(str(e))
+    pause()
+
+
 # ── FILE TOOLS ──────────────────────────────────────────────
 
 def menu_duplicates(logger: CleanerLogger):
@@ -1759,7 +2105,7 @@ def menu_duplicates(logger: CleanerLogger):
                 print(f"  {DIM}… {len(groups)-30} more groups not shown{RST}")
 
             sep()
-            print(f"  {C}[d #]{RST} Delete by number(s)   {C}[all]{RST} Delete ALL copies   {C}[0]{RST} Back")
+            print(f"  {C}[d 1,3]{RST} Delete selected   {C}[all]{RST} Delete ALL copies   {C}[0]{RST} Back")
             sep()
             cmd = prompt()
             if cmd == "0":
@@ -1783,6 +2129,7 @@ def menu_duplicates(logger: CleanerLogger):
 
 
 def menu_large_files(logger: CleanerLogger):
+    PAGE = 20
     while True:
         header(t("menu.large_files"))
         print(f"  {C}[1]{RST} Scan a folder for large files")
@@ -1791,61 +2138,120 @@ def menu_large_files(logger: CleanerLogger):
         c = prompt()
         if c == "0":
             break
-        elif c == "1":
-            default = "C:\\" if os.name == "nt" else os.path.expanduser("~")
-            root = prompt(f"Folder to scan [{default}]: ").strip() or default
-            if not os.path.isdir(root):
-                err(f"Not a directory: {root}")
-                pause()
-                continue
-            threshold_raw = prompt("Minimum size in MB [100]: ").strip()
-            try:
-                min_mb = int(threshold_raw) if threshold_raw else 100
-            except ValueError:
-                min_mb = 100
-            info(f"Scanning '{root}' for files ≥ {min_mb} MB…")
-            try:
-                from core.largefile import find_large_files, delete_file as lf_delete
-                files = find_large_files(root, min_bytes=min_mb * 1024 * 1024, logger=logger)
-            except Exception as e:
-                err(str(e)); pause(); continue
+        elif c != "1":
+            continue
 
-            if not files:
-                ok(f"No files ≥ {min_mb} MB found.")
-                pause()
-                continue
+        default = "C:\\" if os.name == "nt" else os.path.expanduser("~")
+        root = prompt(f"Folder to scan [{default}]: ").strip() or default
+        if not os.path.isdir(root):
+            err(f"Not a directory: {root}")
+            pause()
+            continue
+        threshold_raw = prompt("Minimum size in MB [100]: ").strip()
+        try:
+            min_mb = int(threshold_raw) if threshold_raw else 100
+        except ValueError:
+            min_mb = 100
 
+        info(f"Scanning '{root}' for files ≥ {min_mb} MB…")
+        try:
+            from core.largefile import find_large_files, delete_file as lf_delete
+            files = find_large_files(root, min_bytes=min_mb * 1024 * 1024, logger=logger)
+        except Exception as e:
+            err(str(e)); pause(); continue
+
+        if not files:
+            ok(f"No files ≥ {min_mb} MB found.")
+            pause()
+            continue
+
+        page = 0
+        deleted_paths: set[str] = set()
+
+        while True:
+            # Filter out already-deleted entries
+            visible = [f for f in files if f["path"] not in deleted_paths]
+            if not visible:
+                ok("All files on the list have been deleted.")
+                pause()
+                break
+
+            total_pages = max(1, (len(visible) + PAGE - 1) // PAGE)
+            page = max(0, min(page, total_pages - 1))
+            start = page * PAGE
+            page_files = visible[start: start + PAGE]
+
+            clr()
+            sep()
+            total_wasted = sum(f["size"] for f in visible)
+            print(f"  {C}{B}Large Files{RST}  —  "
+                  f"{len(visible)} file(s)  {fmt_bytes(total_wasted)} total  "
+                  f"  {DIM}page {page+1}/{total_pages}{RST}")
             sep()
             print(f"  {'#':>4}  {'Size':>10}  Path")
             sep("-")
-            for i, f in enumerate(files[:60]):
-                print(f"  {i+1:>4}  {fmt_bytes(f['size']):>10}  {f['path'][:70]}")
-            if len(files) > 60:
-                print(f"  {DIM}… {len(files)-60} more{RST}")
+            for i, f in enumerate(page_files):
+                global_num = start + i + 1
+                print(f"  {global_num:>4}  {fmt_bytes(f['size']):>10}  {f['path'][:72]}")
             sep()
-            print(f"  {C}[d #]{RST} Delete by number(s)   {C}[0]{RST} Back")
+            print(f"  {C}[← →]{RST} / {C}[n p]{RST} page   "
+                  f"{C}[d 1,3,5]{RST} delete   "
+                  f"{C}[d all]{RST} delete page   "
+                  f"{C}[0]{RST} back")
             sep()
-            cmd = prompt()
-            if cmd == "0":
+
+            cmd = nav_prompt()
+
+            if cmd in ("0", "q"):
+                break
+            if cmd in ("__next__", "n"):
+                page = min(page + 1, total_pages - 1)
                 continue
+            if cmd in ("__prev__", "p"):
+                page = max(page - 1, 0)
+                continue
+
             parts = cmd.split(None, 1)
-            if parts and parts[0] == "d" and len(parts) > 1:
+            if not parts or parts[0] != "d":
+                continue
+            arg = parts[1].strip() if len(parts) > 1 else ""
+
+            # Resolve which files to delete
+            if arg.lower() == "all":
+                targets = list(page_files)
+            else:
                 try:
-                    nums = [int(x) - 1 for x in parts[1].split()]
-                    freed = 0
-                    deleted = 0
+                    nums = [int(x) for x in arg.split()]
+                    targets = []
                     for n in nums:
-                        if 0 <= n < len(files):
-                            sz = files[n]["size"]
-                            warn(f"Delete '{files[n]['path']}'?")
-                            if prompt(t("prompt.type_yes")).upper() in ("YES", "ANO"):
-                                if lf_delete(files[n]["path"], logger):
-                                    freed += sz
-                                    deleted += 1
-                    ok(f"Deleted {deleted} file(s) — freed {fmt_bytes(freed)}")
-                except (ValueError, IndexError):
+                        idx = n - 1  # global 1-based → 0-based into visible
+                        if 0 <= idx < len(visible):
+                            targets.append(visible[idx])
+                        else:
+                            err(f"No file #{n}.")
+                except ValueError:
                     err("Invalid number.")
-            pause()
+                    continue
+
+            if not targets:
+                continue
+
+            total_sz = sum(f["size"] for f in targets)
+            warn(f"Delete {len(targets)} file(s)  ({fmt_bytes(total_sz)})? This cannot be undone.")
+            if prompt(t("prompt.type_yes")).upper() not in ("YES", "ANO"):
+                continue
+
+            freed = 0
+            ok_count = 0
+            for f in targets:
+                sz = f["size"]
+                if lf_delete(f["path"], logger):
+                    freed += sz
+                    ok_count += 1
+                    deleted_paths.add(f["path"])
+                else:
+                    err(f"Could not delete: {f['path']}")
+            ok(f"Deleted {ok_count}/{len(targets)} file(s) — freed {fmt_bytes(freed)}")
 
 
 def menu_empty_folders(logger: CleanerLogger):
@@ -1884,7 +2290,7 @@ def menu_empty_folders(logger: CleanerLogger):
             if len(empties) > 50:
                 print(f"  {DIM}… {len(empties)-50} more{RST}")
             sep()
-            print(f"  {C}[d #]{RST} Delete by number(s)   {C}[all]{RST} Delete ALL   {C}[0]{RST} Back")
+            print(f"  {C}[d 1,3]{RST} Delete selected   {C}[all]{RST} Delete ALL   {C}[0]{RST} Back")
             sep()
             cmd = prompt()
             if cmd == "0":
@@ -2055,22 +2461,23 @@ def menu_autoruns(logger: CleanerLogger):
                     print(f"  {i+1:>4}  {e.get('source','')[:18]:<18}  "
                           f"{e.get('name','')[:30]:<30}  {e.get('command','')[:50]}")
                 sep()
-                print(f"  {C}[d #]{RST} Delete entry (disable on startup)   {C}[Enter]{RST} Back")
+                print(f"  {C}[d 1,3]{RST} Delete from startup   {C}[Enter]{RST} Back")
                 sep()
                 cmd = prompt()
                 parts = cmd.split(None, 1)
                 if parts and parts[0] == "d" and len(parts) > 1:
-                    try:
-                        idx = int(parts[1]) - 1
-                        entry = run_entries[idx]
-                        warn(f"Remove '{entry['name']}' from startup?")
-                        if prompt(t("prompt.type_yes")).upper() in ("YES", "ANO"):
-                            if disable_run_entry(entry, logger):
-                                ok("Removed.")
-                            else:
-                                err("Failed — admin rights may be required.")
-                    except (ValueError, IndexError):
+                    idxs = _parse_nums(parts[1], len(run_entries))
+                    sel = [run_entries[i] for i in idxs]
+                    if not sel:
                         err("Invalid number.")
+                    else:
+                        names = ", ".join(e["name"] for e in sel)
+                        warn(f"Remove {len(sel)} startup entry/entries: {names[:80]}?")
+                        if prompt(t("prompt.type_yes")).upper() in ("YES", "ANO"):
+                            done = sum(1 for e in sel if disable_run_entry(e, logger))
+                            ok(f"Removed {done}/{len(sel)}.")
+                            if done < len(sel):
+                                err("Some failed — admin rights may be required.")
             pause()
 
         elif c == "2":
@@ -2099,16 +2506,19 @@ def menu_autoruns(logger: CleanerLogger):
                     print(f"  {i+1:>4}  {st_col}{st_lbl:<10}{RST}  "
                           f"{t2.get('name','')[:40]:<40}  {t2.get('command','')[:40]}")
                 sep()
-                print(f"  {C}[tog #]{RST} Toggle enable/disable   {C}[0]{RST} Back")
+                print(f"  {C}[tog 1,3]{RST} Toggle enable/disable   {C}[0]{RST} Back")
                 sep()
                 cmd = prompt()
                 if cmd == "0":
                     break
                 parts = cmd.split(None, 1)
                 if parts and parts[0] == "tog" and len(parts) > 1:
-                    try:
-                        idx = int(parts[1]) - 1
-                        task = tasks[idx]
+                    idxs = _parse_nums(parts[1], len(tasks[:50]))
+                    if not idxs:
+                        err("Invalid number.")
+                        continue
+                    for idx in idxs:
+                        task = tasks[:50][idx]
                         if task.get("enabled"):
                             disable_scheduled_task(task, logger)
                             task["enabled"] = False
@@ -2117,8 +2527,6 @@ def menu_autoruns(logger: CleanerLogger):
                             enable_scheduled_task(task, logger)
                             task["enabled"] = True
                             ok(f"Enabled '{task['name']}'.")
-                    except (ValueError, IndexError):
-                        err("Invalid number.")
 
         elif c == "3":
             info("Loading shell extensions…")
@@ -2170,7 +2578,7 @@ def menu_context_menu(logger: CleanerLogger):
         if len(entries) > 60:
             print(f"  {DIM}… {len(entries)-60} more entries{RST}")
         sep()
-        print(f"  {C}[tog #]{RST} Toggle   {C}[del #]{RST} Delete permanently   {C}[0]{RST} {t('menu.back')}")
+        print(f"  {C}[tog 1,3]{RST} Toggle   {C}[del 1,3]{RST} Delete permanently   {C}[0]{RST} {t('menu.back')}")
         sep()
         cmd = prompt()
         if cmd == "0":
@@ -2179,21 +2587,22 @@ def menu_context_menu(logger: CleanerLogger):
         if not parts or len(parts) < 2:
             continue
         action, rest = parts[0], parts[1]
-        try:
-            idx = int(rest) - 1
-            entry = entries[idx]
-        except (ValueError, IndexError):
-            err("Invalid number.")
-            continue
+        idxs = _parse_nums(rest, len(entries[:60]))
+        if not idxs:
+            err("Invalid number."); continue
+        sel = [entries[:60][i] for i in idxs]
         if action == "tog":
-            if entry.get("enabled"):
-                ok("Disabled.") if disable_entry(entry, logger) else err("Failed — try running as admin.")
-            else:
-                ok("Enabled.") if enable_entry(entry, logger) else err("Failed — try running as admin.")
+            for entry in sel:
+                if entry.get("enabled"):
+                    ok(f"Disabled '{entry['name']}'.") if disable_entry(entry, logger) else err(f"Failed: '{entry['name']}' — try admin.")
+                else:
+                    ok(f"Enabled '{entry['name']}'.") if enable_entry(entry, logger) else err(f"Failed: '{entry['name']}' — try admin.")
         elif action == "del":
-            warn(f"Permanently delete '{entry['name']}' from context menu?")
+            names = ", ".join(e["name"] for e in sel)
+            warn(f"Permanently delete {len(sel)} entry/entries: {names[:80]}?")
             if prompt(t("prompt.type_yes")).upper() in ("YES", "ANO"):
-                ok("Deleted.") if delete_entry(entry, logger) else err("Failed.")
+                done = sum(1 for e in sel if delete_entry(e, logger))
+                ok(f"Deleted {done}/{len(sel)}.")
 
 
 # ── SYSTEM ADDITIONS ─────────────────────────────────────────
@@ -2306,7 +2715,7 @@ def _menu_history_network(logger: CleanerLogger):
                 ctype = p.get("conn_type", "")
                 print(f"  {i+1:>4}  {p.get('name','')[:30]:<30}  {ctype:<8}  {p.get('date_created','')[:20]:<20}  {p.get('date_last_conn','')}")
         sep()
-        print(f"  {C}[d #]{RST} Delete entry   {C}[all]{RST} Clear all   {C}[0]{RST} {t('menu.back')}")
+        print(f"  {C}[d 1,3]{RST} Delete entries   {C}[all]{RST} Clear all   {C}[0]{RST} {t('menu.back')}")
         sep()
         cmd = prompt()
         if cmd == "0":
@@ -2359,7 +2768,7 @@ def _menu_history_usb(logger: CleanerLogger):
             for i, d in enumerate(devices):
                 print(f"  {i+1:>4}  {d.get('friendly','')[:35]:<35}  {d.get('vendor','')[:20]:<20}  {d.get('model','')[:20]:<20}  {d.get('serial','')[:20]}")
         sep()
-        print(f"  {C}[d #]{RST} Delete entry   {C}[all]{RST} Clear all   {C}[0]{RST} {t('menu.back')}")
+        print(f"  {C}[d 1,3]{RST} Delete entries   {C}[all]{RST} Clear all   {C}[0]{RST} {t('menu.back')}")
         sep()
         cmd = prompt()
         if cmd == "0":
@@ -2428,7 +2837,7 @@ def _menu_history_apps(logger: CleanerLogger):
                 print(f"  {base+i+1:>4}  [run] {e.get('command','')[:40]:<40}")
 
         sep()
-        print(f"  {C}[d #]{RST} Delete entry   {C}[all]{RST} Clear all   {C}[0]{RST} {t('menu.back')}")
+        print(f"  {C}[d 1,3]{RST} Delete entries   {C}[all]{RST} Clear all   {C}[0]{RST} {t('menu.back')}")
         sep()
         cmd = prompt()
         if cmd == "0":

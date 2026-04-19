@@ -42,7 +42,32 @@ BUILTIN_APPS: list[tuple[str, str]] = [
     ("Microsoft To Do",          "Microsoft.Todos"),
     ("Bing Search",              "Microsoft.BingSearch"),
     ("Quick Assist",             "MicrosoftCorporationII.QuickAssist"),
+    ("Microsoft Store",          "Microsoft.WindowsStore"),
+    ("MSN Sports",               "Microsoft.BingSports"),
+    ("MSN Finance",              "Microsoft.BingFinance"),
+    ("Office Hub",               "Microsoft.MicrosoftOfficeHub"),
+    ("OneDrive",                 "Microsoft.OneDriveSync"),
+    ("Windows Media Player",     "Microsoft.ZuneMusic"),
+    ("Camera",                   "Microsoft.WindowsCamera"),
+    ("Alarms & Clock",           "Microsoft.WindowsAlarms"),
+    ("Calculator",               "Microsoft.WindowsCalculator"),
 ]
+
+# Apps that are safe to batch-remove as "bloatware"
+BLOATWARE_IDS: set[str] = {
+    "MicrosoftTeams", "Microsoft.549981C3F5F10", "Microsoft.XboxApp",
+    "Microsoft.XboxGamingOverlay", "Microsoft.XboxIdentityProvider",
+    "Microsoft.XboxSpeechToTextOverlay", "Microsoft.XboxGameOverlay",
+    "microsoft.windowscommunicationsapps", "Microsoft.WindowsMaps",
+    "Microsoft.ZuneVideo", "Microsoft.ZuneMusic", "Microsoft.MixedReality.Portal",
+    "Microsoft.BingNews", "Microsoft.BingWeather", "Microsoft.MicrosoftSolitaireCollection",
+    "Microsoft.Office.OneNote", "Microsoft.MSPaint", "Microsoft.Microsoft3DViewer",
+    "Microsoft.SkypeApp", "Microsoft.Getstarted", "Microsoft.People",
+    "Microsoft.YourPhone", "Microsoft.GetHelp", "Microsoft.WindowsFeedbackHub",
+    "Clipchamp.Clipchamp", "Microsoft.PowerAutomateDesktop",
+    "Microsoft.BingSearch", "MicrosoftCorporationII.QuickAssist",
+    "Microsoft.BingSports", "Microsoft.BingFinance", "Microsoft.MicrosoftOfficeHub",
+}
 
 
 def list_builtin_apps(logger: CleanerLogger) -> list[dict[str, Any]]:
@@ -128,6 +153,23 @@ def uninstall_builtin_app(app: dict, logger: CleanerLogger,
     except Exception as exc:
         logger.error(f"Error removing built-in app {display}: {exc}")
         return False
+
+
+def remove_all_bloatware(logger: CleanerLogger,
+                          all_users: bool = False) -> dict[str, bool]:
+    """
+    Remove all apps whose package ID is in BLOATWARE_IDS.
+    Returns {display_name: success} for every app attempted.
+    """
+    apps = list_builtin_apps(logger)
+    bloatware = [
+        a for a in apps
+        if any(bid.lower() in a["package_name"].lower() for bid in BLOATWARE_IDS)
+    ]
+    results: dict[str, bool] = {}
+    for app in bloatware:
+        results[app["display_name"]] = uninstall_builtin_app(app, logger, all_users=all_users)
+    return results
 
 
 # Registry locations for installed programs

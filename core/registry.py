@@ -328,6 +328,12 @@ def fix_invalid_entry(entry: dict, logger: CleanerLogger) -> bool:
         return False
 
 
+def fix_selected_entries(entries: list[dict], logger: CleanerLogger,
+                          auto_backup: bool = True) -> dict[str, int]:
+    """Fix a caller-supplied subset of registry entries."""
+    return fix_all_invalid(entries, logger, auto_backup=auto_backup)
+
+
 def fix_all_invalid(entries: list[dict], logger: CleanerLogger,
                     auto_backup: bool = True) -> dict[str, int]:
     """Fix all invalid registry entries. Returns counts."""

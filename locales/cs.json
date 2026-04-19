@@ -26,6 +26,8 @@
   "menu.large_files":    "Velké soubory",
   "menu.empty_folders":  "Prázdné složky",
   "menu.secure_wipe":    "Bezpečné mazání",
+  "menu.recovery":       "Obnova souborů",
+  "menu.disk_health":    "Zdraví disku",
   "menu.browser_tools":  "Nástroje prohlížeče",
   "menu.process_mgr":    "Správce procesů",
   "menu.network_tools":  "Síťové nástroje",

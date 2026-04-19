@@ -26,6 +26,8 @@
   "menu.large_files":    "Large Files",
   "menu.empty_folders":  "Empty Folders",
   "menu.secure_wipe":    "Secure Wipe",
+  "menu.recovery":       "File Recovery",
+  "menu.disk_health":    "Disk Health",
   "menu.browser_tools":  "Browser Tools",
   "menu.process_mgr":    "Process Manager",
   "menu.network_tools":  "Network Tools",
