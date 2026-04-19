@@ -710,7 +710,13 @@ def menu_optimizer(logger: CleanerLogger):
             try:
                 from core.optimizer import optimize_ram
                 result = optimize_ram(logger)
-                ok(t("opt.ram_freed", size=fmt_bytes(result.get('freed',0))))
+                sep()
+                ok(t("opt.ram_freed", size=fmt_bytes(result.get('freed', 0))))
+                print(f"  Before : {fmt_bytes(result['before_used'])}  ({result['before_percent']:.0f}%)")
+                print(f"  After  : {fmt_bytes(result['after_used'])}  ({result['after_percent']:.0f}%)")
+                print(f"  Processes trimmed : {result.get('trimmed_procs', 0)}")
+                if result.get('skipped_procs', 0):
+                    print(f"  {DIM}Skipped (no access): {result['skipped_procs']}{RST}")
             except Exception as e:
                 err(str(e))
             pause()
@@ -740,33 +746,35 @@ def menu_optimizer(logger: CleanerLogger):
                 except Exception as e:
                     err(str(e))
             pause()
-        elif c == "5":
+        elif c in ("5", "6"):
             try:
-                from core.optimizer import get_power_plans
+                from core.optimizer import get_power_plans, set_power_plan
                 plans = get_power_plans(logger)
-                sep()
-                for p in plans:
-                    active = f" {G}<-- ACTIVE{RST}" if p.get("active") else ""
-                    print(f"  {p.get('name','Unknown')}{active}")
             except Exception as e:
-                err(str(e))
-            pause()
-        elif c == "6":
-            plan_name = prompt(t("opt.plan_ask"))
-            if plan_name:
-                try:
-                    from core.optimizer import get_power_plans, set_power_plan
-                    plans = get_power_plans(logger)
-                    match = next(
-                        (p for p in plans if plan_name.lower() in p["name"].lower()),
-                        None,
-                    )
-                    if match:
-                        ok(t("opt.plan_ok")) if set_power_plan(match["guid"], logger) else err(t("opt.plan_fail"))
-                    else:
-                        err(t("opt.plan_miss", name=plan_name))
-                except Exception as e:
-                    err(str(e))
+                err(str(e)); pause(); continue
+
+            sep()
+            if not plans:
+                warn("No power plans found.")
+                pause()
+                continue
+
+            for i, p in enumerate(plans):
+                active_tag = f"  {G}<-- ACTIVE{RST}" if p.get("active") else ""
+                print(f"  {C}[{i+1}]{RST} {p.get('name', 'Unknown')}{active_tag}")
+
+            if c == "5":
+                pause()
+                continue
+
+            sep()
+            choice_p = prompt("Select plan number: ").strip()
+            try:
+                idx = int(choice_p) - 1
+                match = plans[idx]
+                ok(t("opt.plan_ok")) if set_power_plan(match["guid"], logger) else err(t("opt.plan_fail"))
+            except (ValueError, IndexError):
+                err("Invalid number.")
             pause()
 
 
@@ -790,9 +798,9 @@ def menu_privacy(logger: CleanerLogger):
                 sep()
                 print(f"  {'Setting':<35}  {'Status':<10}  Description")
                 sep("-")
-                for t in telemetry:
-                    s = f"{R}ON{RST}" if t["enabled"] else f"{G}OFF{RST}"
-                    print(f"  {t['name']:<35}  {s:<10}  {t['description']}")
+                for item in telemetry:
+                    s = f"{R}ON{RST}" if item["enabled"] else f"{G}OFF{RST}"
+                    print(f"  {item['name']:<35}  {s:<10}  {item['description']}")
             except Exception as e:
                 err(str(e))
             pause()
@@ -815,8 +823,8 @@ def menu_privacy(logger: CleanerLogger):
                 from core.privacy import scan_tracking_files
                 tracking = scan_tracking_files(logger)
                 sep()
-                for t in tracking:
-                    print(f"  {t['category']:<25} {t['files']:>5} files  {fmt_bytes(t['size'])}")
+                for item in tracking:
+                    print(f"  {item['category']:<25} {item['files']:>5} files  {fmt_bytes(item['size'])}")
             except Exception as e:
                 err(str(e))
             pause()

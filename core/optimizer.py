@@ -245,33 +245,55 @@ def get_system_stats() -> dict[str, Any]:
 
 
 def optimize_ram(logger: CleanerLogger) -> dict[str, Any]:
-    """Attempt to optimize RAM usage by requesting garbage collection."""
-    import psutil
+    """
+    Trim the working set of every accessible process.
+    This asks Windows to page out idle memory pages, lowering reported RAM usage.
+    Requires admin for best results; non-admin processes are skipped silently.
+    """
     import gc
+    import os
+    import psutil
 
     before = psutil.virtual_memory()
     gc.collect()
 
-    # On Windows, we can try to empty working sets via EmptyWorkingSet
-    try:
-        import ctypes
-        # Get handle to current process
-        kernel32 = ctypes.windll.kernel32
-        handle = kernel32.GetCurrentProcess()
-        # SetProcessWorkingSetSize with -1, -1 trims working set
-        kernel32.SetProcessWorkingSetSize(handle, -1, -1)
-    except Exception:
-        pass
+    trimmed = 0
+    skipped = 0
+
+    if os.name == "nt":
+        try:
+            import ctypes
+            kernel32  = ctypes.windll.kernel32
+            PROCESS_SET_QUOTA = 0x0100
+            PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+            access = PROCESS_SET_QUOTA | PROCESS_QUERY_LIMITED_INFORMATION
+
+            for proc in psutil.process_iter(["pid"]):
+                pid = proc.info["pid"]
+                if pid == 0:
+                    continue
+                handle = kernel32.OpenProcess(access, False, pid)
+                if handle:
+                    # SetProcessWorkingSetSize(-1, -1) = "trim to minimum"
+                    kernel32.SetProcessWorkingSetSize(handle, -1, -1)
+                    kernel32.CloseHandle(handle)
+                    trimmed += 1
+                else:
+                    skipped += 1
+        except Exception as e:
+            logger.error(f"RAM optimization error: {e}")
 
     after = psutil.virtual_memory()
-    freed = before.used - after.used if before.used > after.used else 0
+    freed = max(0, before.used - after.used)
 
     logger.log("optimize_ram", "optimizer",
-              f"RAM optimization: freed {freed} bytes", freed)
+               f"Trimmed {trimmed} processes, freed ~{freed} bytes", freed)
     return {
-        "before_used": before.used,
-        "after_used": after.used,
-        "freed": freed,
+        "before_used":    before.used,
+        "after_used":     after.used,
+        "freed":          freed,
         "before_percent": before.percent,
-        "after_percent": after.percent,
+        "after_percent":  after.percent,
+        "trimmed_procs":  trimmed,
+        "skipped_procs":  skipped,
     }

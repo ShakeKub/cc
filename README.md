@@ -1,142 +1,122 @@
 # System Cleaner
 
-System Cleaner is a comprehensive and powerful tool for cleaning, optimizing, and managing your system. It provides a feature-rich Textual User Interface (TUI) for interactive use, a command-line interface (CLI) for scripting, and a silent mode for automated tasks.
+A Windows system maintenance tool with a pure ANSI terminal interface. Cleans junk files, manages processes and startup entries, monitors applications, analyzes disk usage, and more — all from a keyboard-driven menu.
 
-## Features
+## Requirements
 
-- **Comprehensive Cleaning:** Cleans temporary files, browser data, system caches, and more.
-- **Advanced Tools:** Includes an uninstaller, startup manager, disk analyzer, and registry cleaner.
-- **Optimization:** Provides tools to optimize system services, RAM usage, and power settings.
-- **Privacy and Security:** Helps manage telemetry, remove tracking files, and identify suspicious processes.
-- **Extensible:** Supports custom plugins and themes.
-- **Multiple Interfaces:** Can be run with a full TUI, via CLI, or silently in the background.
+- Windows 10 / 11
+- Python 3.10+
+- Admin rights recommended (required for some features)
+
+## Installation
+
+```bash
+pip install -r requirements.txt
+python main.py
+```
+
+## Menu
+
+The main menu is organized into five categories:
+
+### Cleaning
+| # | Feature | Description |
+|---|---------|-------------|
+| 1 | System Scan | Scan for temp files, WU cache, DNS cache, thumbnails, and more — shows sizes before cleaning |
+| 2 | Quick Clean | Removes temporary files and empties the recycle bin |
+| 3 | Standard Clean | Quick + browser caches, prefetch, DNS flush |
+| 4 | Deep Clean | Standard + Windows Update cache, log files, thumbnail cache |
+| 5 | Team Clean | All-in-one: deep system + all browsers + privacy tracking files |
+
+### File Tools
+| # | Feature | Description |
+|---|---------|-------------|
+| 6 | Duplicate Files | Two-pass SHA-1 scan — groups duplicates, shows wasted space, delete individually or all at once |
+| 7 | Large Files | Find files above a configurable size threshold, sorted largest first |
+| 8 | Empty Folders | Detect and remove empty directories recursively |
+| 9 | Secure Wipe | Multi-pass overwrite (zeros → 0xFF → random) before deletion — files cannot be recovered |
+
+### Tools
+| # | Feature | Description |
+|---|---------|-------------|
+| 10 | Browser Tools | Clean cache, cookies, and history for Chrome, Edge, and Firefox |
+| 11 | Process Manager | List running processes with CPU/RAM stats, kill processes, detect name-mimicry |
+| 12 | Network Tools | Active connections, DNS flush, IP info, ping, connectivity diagnostics |
+| 13 | Startup Manager | View, enable, disable, or remove startup entries with impact levels |
+| 14 | Disk Tools | Disk usage breakdown by folder, largest directories |
+| 15 | Registry Cleaner | Scan SharedDLLs, AppPaths, file associations, and uninstall entries; backup/restore |
+| 16 | Optimizer | Trim RAM across all running processes, manage optional services, switch power plans |
+| 17 | Privacy & Security | Toggle Windows telemetry, scan and remove tracking files |
+| 18 | Uninstaller | Uninstall programs or built-in Windows apps (Teams, Xbox, Cortana…) |
+| 19 | Autoruns | Full autorun view: Run keys, Winlogon, shell extensions, scheduled tasks — enable/disable |
+| 20 | Context Menu | Inspect, disable, or delete right-click context menu entries from the registry |
+
+### Monitoring
+| # | Feature | Description |
+|---|---------|-------------|
+| 21 | App Tracer | Track file, registry, and process activity of any app in real-time; save sessions |
+| 22 | Scout Mode | Deep monitoring: file I/O, downloads, network connections, registry changes, spawned processes |
+| 23 | System Health | Composite health score (0–100, A–F) across CPU, RAM, disk, startup load, and uptime |
+| 24 | Crash Logs | Read critical/error events from Windows Event Log, BSOD history, and minidump files |
+
+### System
+| # | Feature | Description |
+|---|---------|-------------|
+| 25 | History Manager | View and selectively delete network connection history, USB device history, and app launch history |
+| 26 | Restore Points | List, create, and delete Windows System Restore points |
+| 27 | Scheduler | Create scheduled cleaning tasks (daily/weekly/hourly) |
+| 28 | Logs & Reports | Session stats, export to TXT or JSON |
+| 29 | Language | Switch between English and Czech; setting saved to `config.json` |
 
 ## Project Structure
 
 ```
-system_cleaner/
-├── main.py                     # Entry point (TUI, CLI, silent mode)
-├── app.py                      # Main Textual application (keyboard nav, views)
-├── config.json                 # Configuration & cleaning profiles
-├── requirements.txt            # Python dependencies
-├── core/                       # Core logic layer
-│   ├── cleaner.py              # System cleaning (temp, DNS, recycle bin, etc.)
-│   ├── browser.py              # Browser cleaning (Chrome, Edge, Firefox)
-│   ├── uninstaller.py          # Advanced uninstaller (silent, deep, batch)
-│   ├── startup.py              # Startup manager (enable/disable/detect)
-│   ├── disk.py                 # Disk tools (analyze, duplicates, shredder)
-│   ├── registry.py             # Registry cleaner (scan, fix, backup/restore)
-│   ├── optimizer.py            # System optimization (services, RAM, power)
-│   ├── privacy.py              # Privacy & security (telemetry, tracking)
-│   ├── process.py              # Process manager (list, kill, suspicious)
-│   ├── network.py              # Network tools (connections, ping, diag)
-│   ├── scheduler.py            # Task scheduler & cleaning profiles
-│   ├── tracer.py               # Deep application trace analyzer
-│   └── logger.py               # Logging system (TXT/JSON export, reports)
-├── ui/                         # UI layer
-│   ├── dashboard.py            # View renderers for all 14 sections
-│   ├── dialogs.py              # Modal dialogs (confirm, search, command palette)
-│   └── widgets.py              # Custom widgets (stats bar, risk indicator, etc.)
-├── plugins/                    # Plugin system
-│   ├── __init__.py             # Plugin manager (discover, load, register)
-│   └── example_plugin.py       # Example plugin template
-└── themes/                     # Theme system
-    └── __init__.py             # 5 themes (cyberpunk, matrix, midnight, blood, arctic)
+cc/
+├── main.py             # Entry point
+├── app.py              # All menus and UI logic (pure ANSI terminal)
+├── config.json         # Cleaning profiles and language setting
+├── requirements.txt
+├── locales/
+│   ├── en.json         # English strings
+│   └── cs.json         # Czech strings
+├── core/
+│   ├── i18n.py         # Translation layer (t(), set_language(), available_languages())
+│   ├── logger.py       # Session logger with TXT/JSON export
+│   ├── cleaner.py      # System cleaning (temp, WU cache, DNS, prefetch, recycle bin)
+│   ├── browser.py      # Browser cleaning (Chrome, Edge, Firefox)
+│   ├── process.py      # Process listing, kill, suspicious detection
+│   ├── network.py      # Network connections, DNS, ping, diagnostics
+│   ├── startup.py      # Startup entry manager
+│   ├── disk.py         # Disk usage analysis
+│   ├── registry.py     # Registry scan, backup, restore
+│   ├── optimizer.py    # RAM optimization, services, power plans
+│   ├── privacy.py      # Telemetry toggles, tracking file removal
+│   ├── uninstaller.py  # Program and built-in app uninstaller
+│   ├── scheduler.py    # Task scheduler integration
+│   ├── tracer.py       # Static app trace scanner
+│   ├── tracer_session.py # Live app tracing (watchdog-based)
+│   ├── scout.py        # Scout Mode — deep real-time monitoring
+│   ├── health.py       # System health scoring
+│   ├── history.py      # Network, USB, and app launch history
+│   ├── restore.py      # System Restore point manager
+│   ├── crashlog.py     # Windows Event Log and minidump reader
+│   ├── autoruns.py     # Comprehensive autorun entry manager
+│   ├── contextmenu.py  # Context menu entry manager
+│   ├── duplicates.py   # Duplicate file finder (SHA-1, two-pass)
+│   ├── largefile.py    # Large file finder
+│   ├── emptyfolders.py # Empty folder finder and cleaner
+│   └── securewipe.py   # Multi-pass secure file wipe
+├── profiles/           # Saved tracer and scout session files (JSON)
+└── logs/               # Exported session logs
 ```
 
-## Installation
+## Notes
 
-1.  Navigate to the project directory:
-    ```bash
-    cd system_cleaner
-    ```
-
-2.  Install the required Python dependencies:
-    ```bash
-    pip install -r requirements.txt
-    ```
-
-## Usage
-
-The application can be launched in several modes from the `system_cleaner` directory.
-
-### TUI Mode
-
-To launch the full Textual User Interface:
-```bash
-python main.py
-```
-
-### CLI Mode
-
-Use the `--cli` flag for command-line operations.
-
-- **Scan system:**
-  ```bash
-  python main.py --cli scan
-  ```
-- **Run standard clean:**
-  ```bash
-  python main.py --cli clean
-  ```
-- **List top processes:**
-  ```bash
-  python main.py --cli processes
-  ```
-- **Show network info:**
-  ```bash
-  python main.py --cli network
-  ```
-- **Detect browsers:**
-  ```bash
-  python main.py --cli browsers
-  ```
-- **Generate report:**
-  ```bash
-  python main.py --cli report
-  ```
-
-### Silent Mode
-
-Silent mode runs tasks without any UI, which is ideal for scheduled cleaning.
-
-- **Run default silent clean:**
-  ```bash
-  python main.py --silent
-  ```
-- **Run a specific cleaning profile (e.g., 'deep'):**
-  ```bash
-  python main.py --silent --profile deep
-  ```
-
-## Modules in Detail
-
-| #  | Module            | Features                                                                          |
-|----|-------------------|-----------------------------------------------------------------------------------|
-| 1  | System Cleaner    | %TEMP%, Prefetch, WU cache, DNS, thumbnails, clipboard, recycle bin.              |
-| 2  | Browser Cleaner   | Chrome/Edge/Firefox - cache, cookies, history, sessions per profile.              |
-| 3  | Uninstaller       | List/search programs, silent uninstall, deep clean leftovers, orphan detection, batch. |
-| 4  | Startup Manager   | View/enable/disable/remove entries, impact levels, suspicious detection.          |
-| 5  | Disk Tools        | Usage analyzer, large files, SHA-256 duplicate finder, empty folders, DoD shredder. |
-| 6  | Registry Cleaner  | Scan SharedDLLs/AppPaths/associations/uninstall, backup/restore, risk levels.     |
-| 7  | Optimizer         | 12 optional services, power plan switcher, RAM optimization, live CPU/RAM stats.    |
-| 8  | Privacy           | 5 telemetry toggles, tracking file removal, suspicious file heuristic scanner.    |
-| 9  | Process Manager   | List/kill processes, CPU/RAM stats, suspicious process detection (name mimicry).  |
-| 10 | Network Tools     | Active connections, DNS flush, IP info, ping, 4-step diagnostics.                 |
-| 11 | Scheduler         | Windows Task Scheduler integration, custom cleaning profiles.                     |
-| 12 | Logs & Reports    | Structured logging, TXT/JSON export, session statistics.                          |
-| 13 | App Tracer        | Deep scan (files/registry/services/tasks/startup/processes), heuristic matching, deep clean. |
-
-## Configuration
-
-The application's behavior and cleaning profiles can be configured in the `config.json` file. This includes settings for each module, theme selection, and custom cleaning jobs.
-
-## Plugins and Theming
-
-The `plugins/` directory contains the plugin system, allowing for the extension of core functionality. An example plugin is provided in `example_plugin.py`.
-
-The `themes/` directory manages the visual appearance of the TUI. The application includes several built-in themes.
+- **Admin rights** are required for RAM optimization (trims all process working sets), service management, system restore point creation, and registry writes outside HKCU.
+- **Secure Wipe** overwrites file content before deletion. It cannot recover files deleted through normal means.
+- **Scout Mode** uses `watchdog` for filesystem monitoring and `psutil` for process/network polling. It saves sessions to `profiles/scout_*.json`.
+- **Language** defaults to English. Switch to Czech via option 29; the setting persists in `config.json`.
 
 ## License
 
-This project is unlicensed.
+Unlicensed.
