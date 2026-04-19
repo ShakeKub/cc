@@ -177,6 +177,9 @@ def _menu_categories():
             ("8",  t("menu.empty_folders")),
             ("9",  t("menu.secure_wipe")),
             ("10", t("menu.recovery")),
+            ("36", t("menu.shortcut_fixer")),
+            ("37", t("menu.msi_cache")),
+            ("35", t("menu.font_mgr")),
         ]),
         (t("cat.tools"), [
             ("11", t("menu.browser_tools")),
@@ -190,6 +193,9 @@ def _menu_categories():
             ("19", t("menu.uninstaller")),
             ("20", t("menu.autoruns")),
             ("21", t("menu.context_menu")),
+            ("32", t("menu.perf_boost")),
+            ("33", t("menu.env_vars")),
+            ("34", t("menu.firewall")),
         ]),
         (t("cat.monitoring"), [
             ("22", t("menu.app_tracer")),
@@ -197,6 +203,8 @@ def _menu_categories():
             ("24", t("menu.health")),
             ("25", t("menu.crash_logs")),
             ("26", t("menu.disk_health")),
+            ("38", t("menu.sys_info")),
+            ("39", t("menu.net_speed")),
         ]),
         (t("cat.system"), [
             ("27", t("menu.history_mgr")),
@@ -204,6 +212,10 @@ def _menu_categories():
             ("29", t("menu.scheduler")),
             ("30", t("menu.logs")),
             ("31", t("menu.language")),
+            ("40", t("menu.win_update")),
+            ("41", t("menu.dns_hosts")),
+            ("42", t("menu.ad_blocker")),
+            ("43", t("menu.wol")),
         ]),
     ]
 
@@ -259,6 +271,18 @@ _DISPATCH = {
     "29": lambda l: menu_scheduler(l),
     "30": lambda l: menu_logs(l),
     "31": lambda l: menu_language(l),
+    "32": lambda l: menu_performance_boost(l),
+    "33": lambda l: menu_envvars(l),
+    "34": lambda l: menu_firewall(l),
+    "35": lambda l: menu_fontmgr(l),
+    "36": lambda l: menu_shortcut_fixer(l),
+    "37": lambda l: menu_msi_cache(l),
+    "38": lambda l: menu_sysinfo(l),
+    "39": lambda l: menu_netspeed(l),
+    "40": lambda l: menu_winupdate(l),
+    "41": lambda l: menu_dns_hosts(l),
+    "42": lambda l: menu_adblocker(l),
+    "43": lambda l: menu_wol(l),
 }
 
 
@@ -2801,6 +2825,8 @@ def _menu_history_usb(logger: CleanerLogger):
 
 
 def _menu_history_apps(logger: CleanerLogger):
+    from datetime import datetime, timedelta
+    DAYS = 3
     while True:
         header(t("hist.app_lbl"))
         info(t("hist.loading"))
@@ -2810,34 +2836,50 @@ def _menu_history_apps(logger: CleanerLogger):
         except Exception as e:
             err(str(e)); pause(); return
 
-        userassist = data.get("userassist", [])
+        cutoff = datetime.now() - timedelta(days=DAYS)
+
+        raw_ua = data.get("userassist", [])
+        # Filter to last 3 days; keep entries with no date too (run_count > 0)
+        userassist = []
+        for entry in raw_ua:
+            last = entry.get("last_run", "")
+            if last:
+                try:
+                    if datetime.strptime(last[:16], "%Y-%m-%d %H:%M") >= cutoff:
+                        userassist.append(entry)
+                except ValueError:
+                    pass
+            elif entry.get("run_count", 0) > 0:
+                userassist.append(entry)
+
         recent_docs = data.get("recent_docs", [])
         run_mru    = data.get("run_mru", [])
-        all_entries = userassist + recent_docs + run_mru
+        display_list = userassist + recent_docs + run_mru
 
         sep()
-        info(t("hist.app_note"))
-        print(f"  {DIM}{t('hist.app_doc')}: {len(recent_docs)}   {t('hist.app_run')}: {len(run_mru)}{RST}")
+        print(f"  {DIM}Showing activity from last {DAYS} days — {len(userassist)} apps, "
+              f"{len(recent_docs)} docs, {len(run_mru)} run commands{RST}")
+        warn("Deleting an item wipes its ENTIRE launch history from the registry.")
         sep()
 
-        if not all_entries:
+        if not display_list:
             warn(t("hist.no_entries"))
         else:
             print(f"  {'#':>4}  {'Name / Command':<45}  {t('hist.run_count'):>5}  {t('hist.last_run')}")
             sep("-")
-            for i, e in enumerate(userassist[:50]):
-                runs = e.get("run_count", 0)
-                last = e.get("last_run", t("hist.never"))
-                print(f"  {i+1:>4}  {e.get('name','')[:45]:<45}  {runs:>5}  {last}")
-            base = len(userassist[:50])
-            for i, e in enumerate(recent_docs[:20]):
-                print(f"  {base+i+1:>4}  [doc] {e.get('name','')[:40]:<40}")
-            base += len(recent_docs[:20])
-            for i, e in enumerate(run_mru[:20]):
-                print(f"  {base+i+1:>4}  [run] {e.get('command','')[:40]:<40}")
+            for i, entry in enumerate(userassist):
+                runs = entry.get("run_count", 0)
+                last = entry.get("last_run", t("hist.never"))
+                print(f"  {i+1:>4}  {entry.get('name','')[:45]:<45}  {runs:>5}  {last}")
+            base = len(userassist)
+            for i, entry in enumerate(recent_docs):
+                print(f"  {base+i+1:>4}  [doc] {entry.get('name','')[:40]:<40}")
+            base += len(recent_docs)
+            for i, entry in enumerate(run_mru):
+                print(f"  {base+i+1:>4}  [run] {entry.get('command','')[:40]:<40}")
 
         sep()
-        print(f"  {C}[d 1,3]{RST} Delete entries   {C}[all]{RST} Clear all   {C}[0]{RST} {t('menu.back')}")
+        print(f"  {C}[d 1,3]{RST} Delete & wipe history   {C}[all]{RST} Clear all   {C}[0]{RST} {t('menu.back')}")
         sep()
         cmd = prompt()
         if cmd == "0":
@@ -2855,19 +2897,730 @@ def _menu_history_apps(logger: CleanerLogger):
             continue
         parts = cmd.split(None, 1)
         if parts and parts[0] == "d" and len(parts) > 1:
-            display_list = userassist[:50] + recent_docs[:20] + run_mru[:20]
-            try:
-                nums = [int(x) - 1 for x in parts[1].split()]
-                deleted = 0
-                for idx in nums:
-                    try:
-                        if delete_app_launch_entry(display_list[idx], logger):
-                            deleted += 1
-                    except (IndexError, Exception) as e:
-                        err(t("hist.del_fail", err=str(e)))
-                ok(t("hist.entry_del", count=deleted))
-            except ValueError:
-                err(t("hist.bad_num"))
+            idxs = _parse_nums(parts[1], len(display_list))
+            if not idxs:
+                err(t("hist.bad_num")); pause(); continue
+            deleted = 0
+            for idx in idxs:
+                try:
+                    if delete_app_launch_entry(display_list[idx], logger):
+                        deleted += 1
+                except Exception as e:
+                    err(t("hist.del_fail", err=str(e)))
+            ok(t("hist.entry_del", count=deleted))
+            pause()
+
+
+def menu_performance_boost(logger: CleanerLogger):
+    from core.perfboost import (kill_background_apps, trim_ram,
+                                 set_high_performance, disable_visual_effects,
+                                 stop_heavy_services)
+    while True:
+        header("Performance Boost")
+        print(f"  {DIM}Apply one or more optimizations for an immediate speed boost.{RST}")
+        sep()
+        print(f"  {C}[1]{RST} Kill background apps  (Teams, Discord, OneDrive, Spotify…)")
+        print(f"  {C}[2]{RST} Trim RAM working sets (release memory held by all processes)")
+        print(f"  {C}[3]{RST} Switch to High Performance power plan")
+        print(f"  {C}[4]{RST} Disable visual effects (animations, shadows, transparency)")
+        print(f"  {C}[5]{RST} Stop SysMain & Windows Search services temporarily")
+        print(f"  {C}[all]{RST} Apply ALL optimizations at once")
+        print(f"  {C}[0]{RST} {t('menu.back')}")
+        sep()
+        cmd = prompt()
+        if cmd == "0":
+            break
+
+        actions = []
+        if cmd.lower() == "all":
+            actions = ["1", "2", "3", "4", "5"]
+        elif cmd in ("1", "2", "3", "4", "5"):
+            actions = [cmd]
+        else:
+            err("Unknown option."); pause(); continue
+
+        for act in actions:
+            if act == "1":
+                info("Killing background apps…")
+                res = kill_background_apps(logger)
+                if res["killed"]:
+                    ok(f"Killed {res['killed']} app(s): {', '.join(res['names'])}")
+                else:
+                    print(f"  {DIM}No targeted apps were running.{RST}")
+
+            elif act == "2":
+                info("Trimming RAM…")
+                res = trim_ram(logger)
+                freed_mb = res["freed"] // 1024 // 1024
+                ok(f"Trimmed {res['trimmed']} processes — freed ~{freed_mb} MB")
+
+            elif act == "3":
+                info("Switching power plan…")
+                if set_high_performance(logger):
+                    ok("Power plan set to High Performance.")
+                else:
+                    err("Failed to switch power plan (admin required?).")
+
+            elif act == "4":
+                info("Applying best-performance visual settings…")
+                if disable_visual_effects(logger):
+                    ok("Visual effects minimized. Sign out/in to fully apply.")
+                else:
+                    err("Failed to apply visual settings.")
+
+            elif act == "5":
+                info("Stopping heavy services…")
+                res = stop_heavy_services(logger)
+                for svc, success in res.items():
+                    if success:
+                        ok(f"Stopped: {svc}")
+                    else:
+                        warn(f"Could not stop: {svc}")
+
+        pause()
+
+
+# ── 33. ENVIRONMENT VARIABLES ─────────────────────────────────
+
+def menu_envvars(logger: CleanerLogger):
+    from core.envvars import get_env_vars, set_env_var, delete_env_var
+    scope = "user"
+    while True:
+        header("Environment Variables")
+        scope_lbl = f"{G}User{RST}" if scope == "user" else f"{Y}System{RST}"
+        print(f"  Scope: {scope_lbl}   {C}[s]{RST} Switch scope")
+        sep()
+        info("Loading…")
+        entries = get_env_vars(scope)
+        if not entries:
+            warn("No entries found.")
+        else:
+            print(f"  {'#':>4}  {'Variable':<35}  Value")
+            sep("-")
+            for i, e in enumerate(entries):
+                val_short = e["value"][:60] + ("…" if len(e["value"]) > 60 else "")
+                print(f"  {i+1:>4}  {e['name'][:35]:<35}  {val_short}")
+        sep()
+        print(f"  {C}[add]{RST} Add new   {C}[del 1,3]{RST} Delete   {C}[s]{RST} Switch scope   {C}[0]{RST} {t('menu.back')}")
+        sep()
+        cmd = prompt()
+        if cmd == "0":
+            break
+        if cmd.lower() == "s":
+            scope = "system" if scope == "user" else "user"
+            continue
+        if cmd.lower() == "add":
+            name = prompt("Variable name: ").strip()
+            if not name:
+                continue
+            value = prompt("Value: ").strip()
+            if set_env_var(name, value, scope, logger):
+                ok(f"Set: {name}={value}")
+            else:
+                err("Failed (admin required for system scope).")
+            pause()
+            continue
+        parts = cmd.split(None, 1)
+        if parts and parts[0] == "del" and len(parts) > 1:
+            idxs = _parse_nums(parts[1], len(entries))
+            if not idxs:
+                err("Invalid number."); pause(); continue
+            deleted = 0
+            for idx in idxs:
+                if delete_env_var(entries[idx]["name"], scope, logger):
+                    deleted += 1
+            ok(f"Deleted {deleted} variable(s).")
+            pause()
+
+
+# ── 34. FIREWALL RULES ────────────────────────────────────────
+
+def menu_firewall(logger: CleanerLogger):
+    from core.firewall import get_firewall_rules, enable_rule, disable_rule, delete_rule
+    direction = "all"
+    PAGE = 25
+    page = 0
+    rules: list[dict] = []
+    while True:
+        header("Firewall Rules")
+        dir_lbl = {"all": "All", "in": "Inbound", "out": "Outbound"}[direction]
+        print(f"  Direction: {C}{dir_lbl}{RST}   {C}[f in/out/all]{RST} Filter   {C}[r]{RST} Reload")
+        sep()
+        if not rules:
+            info("Loading rules…")
+            rules = get_firewall_rules(direction, logger=logger)
+        total = len(rules)
+        start = page * PAGE
+        end = min(start + PAGE, total)
+        page_rules = rules[start:end]
+        if not page_rules:
+            warn("No rules found."); page = 0
+        else:
+            print(f"  {'#':>4}  {'Name':<45}  {'Dir':<4}  {'Action':<7}  En")
+            sep("-")
+            for i, rule in enumerate(page_rules):
+                enabled = f"{G}Y{RST}" if rule["enabled"] else f"{R}N{RST}"
+                direction_short = "IN" if "Inbound" in str(rule["direction"]) else "OUT"
+                action_short = "Allow" if "Allow" in str(rule["action"]) else "Block"
+                print(f"  {start+i+1:>4}  {rule['name'][:45]:<45}  {direction_short:<4}  {action_short:<7}  {enabled}")
+        sep()
+        pages = (total + PAGE - 1) // PAGE
+        print(f"  Page {page+1}/{pages}   {C}[n]{RST} Next   {C}[p]{RST} Prev")
+        print(f"  {C}[tog 1,3]{RST} Toggle   {C}[del 1,3]{RST} Delete   {C}[0]{RST} {t('menu.back')}")
+        sep()
+        cmd = prompt()
+        if cmd == "0":
+            break
+        if cmd == "n":
+            if page < pages - 1:
+                page += 1
+            continue
+        if cmd == "p":
+            if page > 0:
+                page -= 1
+            continue
+        if cmd == "r":
+            rules = []; page = 0; continue
+        parts = cmd.split(None, 1)
+        if parts and parts[0] == "f" and len(parts) > 1:
+            direction = parts[1].strip()
+            if direction not in ("in", "out", "all"):
+                direction = "all"
+            rules = []; page = 0; continue
+        if parts and parts[0] in ("tog", "del") and len(parts) > 1:
+            idxs = _parse_nums(parts[1], total)
+            if not idxs:
+                err("Invalid number."); pause(); continue
+            for idx in idxs:
+                rule = rules[idx]
+                if parts[0] == "tog":
+                    if rule["enabled"]:
+                        disable_rule(rule["name"], logger)
+                    else:
+                        enable_rule(rule["name"], logger)
+                else:
+                    delete_rule(rule["name"], logger)
+            ok(f"Done — {len(idxs)} rule(s) updated.")
+            rules = []  # reload
+            pause()
+
+
+# ── 35. FONT MANAGER ─────────────────────────────────────────
+
+def menu_fontmgr(logger: CleanerLogger):
+    from core.fontmgr import get_installed_fonts, delete_font
+    PAGE = 30
+    page = 0
+    fonts: list[dict] = []
+    while True:
+        header("Font Manager")
+        if not fonts:
+            info("Loading fonts…")
+            fonts = get_installed_fonts(logger)
+        total = len(fonts)
+        start = page * PAGE
+        end = min(start + PAGE, total)
+        page_fonts = fonts[start:end]
+        sep()
+        if not page_fonts:
+            warn("No fonts found.")
+        else:
+            print(f"  {'#':>4}  {'Font Name':<50}  {'File':<30}  Size")
+            sep("-")
+            for i, f in enumerate(page_fonts):
+                size_kb = f["size"] // 1024
+                miss = f"  {R}[missing]{RST}" if not f["exists"] else ""
+                print(f"  {start+i+1:>4}  {f['name'][:50]:<50}  {f['filename'][:30]:<30}  {size_kb}KB{miss}")
+        sep()
+        pages = max(1, (total + PAGE - 1) // PAGE)
+        print(f"  {total} fonts installed   Page {page+1}/{pages}")
+        print(f"  {C}[n]{RST} Next   {C}[p]{RST} Prev   {C}[del 1,3]{RST} Delete   {C}[0]{RST} {t('menu.back')}")
+        sep()
+        cmd = prompt()
+        if cmd == "0":
+            break
+        if cmd == "n":
+            if page < pages - 1:
+                page += 1
+            continue
+        if cmd == "p":
+            if page > 0:
+                page -= 1
+            continue
+        parts = cmd.split(None, 1)
+        if parts and parts[0] == "del" and len(parts) > 1:
+            idxs = _parse_nums(parts[1], total)
+            if not idxs:
+                err("Invalid number."); pause(); continue
+            warn(f"About to delete {len(idxs)} font(s). This cannot be undone.")
+            if prompt(t("prompt.type_yes")).upper() not in ("YES", "ANO"):
+                continue
+            deleted = sum(1 for idx in idxs if delete_font(fonts[idx], logger))
+            ok(f"Deleted {deleted} font(s).")
+            fonts = []  # reload
+            pause()
+
+
+# ── 36. SHORTCUT FIXER ───────────────────────────────────────
+
+def menu_shortcut_fixer(logger: CleanerLogger):
+    from core.shortcutfix import find_broken_shortcuts, delete_shortcuts
+    broken: list[dict] = []
+    while True:
+        header("Shortcut Fixer")
+        sep()
+        if not broken:
+            info("Scanning Desktop, Start Menu…")
+            extra = prompt("Scan extra folder (Enter to skip): ").strip()
+            broken = find_broken_shortcuts(
+                extra_dirs=[extra] if extra else None, logger=logger
+            )
+        if not broken:
+            ok("No broken shortcuts found.")
+            pause(); return
+        print(f"  {'#':>4}  {'Name':<35}  {'Location':<35}  Target (missing)")
+        sep("-")
+        for i, s in enumerate(broken):
+            print(f"  {i+1:>4}  {s['name'][:35]:<35}  {s['location'][-35:]:<35}  {s['target'][:50]}")
+        sep()
+        print(f"  {C}[d 1,3]{RST} Delete   {C}[all]{RST} Delete all   {C}[r]{RST} Rescan   {C}[0]{RST} {t('menu.back')}")
+        sep()
+        cmd = prompt()
+        if cmd == "0":
+            break
+        if cmd == "r":
+            broken = []; continue
+        if cmd.lower() == "all":
+            warn(f"Delete all {len(broken)} broken shortcuts?")
+            if prompt(t("prompt.type_yes")).upper() in ("YES", "ANO"):
+                deleted = delete_shortcuts(broken, logger)
+                ok(f"Deleted {deleted} shortcut(s).")
+                broken = []
+            pause(); continue
+        parts = cmd.split(None, 1)
+        if parts and parts[0] == "d" and len(parts) > 1:
+            idxs = _parse_nums(parts[1], len(broken))
+            if not idxs:
+                err("Invalid number."); pause(); continue
+            selected = [broken[i] for i in idxs]
+            deleted = delete_shortcuts(selected, logger)
+            ok(f"Deleted {deleted} shortcut(s).")
+            broken = [b for j, b in enumerate(broken) if j not in idxs]
+            pause()
+
+
+# ── 37. MSI CACHE CLEANER ────────────────────────────────────
+
+def menu_msi_cache(logger: CleanerLogger):
+    from core.msicache import find_orphaned_msi, delete_msi_files
+    orphans: list[dict] = []
+    while True:
+        header("MSI Installer Cache Cleaner")
+        sep()
+        if not orphans:
+            info("Scanning C:\\Windows\\Installer for orphaned files…")
+            orphans = find_orphaned_msi(logger)
+        if not orphans:
+            ok("No orphaned installer files found.")
+            pause(); return
+        total_size = sum(o["size"] for o in orphans)
+        print(f"  Found {len(orphans)} orphaned file(s) — {total_size//1024//1024} MB reclaimable")
+        sep("-")
+        print(f"  {'#':>4}  {'Filename':<40}  {'Type':<5}  Size")
+        sep("-")
+        for i, o in enumerate(orphans):
+            print(f"  {i+1:>4}  {o['name'][:40]:<40}  {o['ext']:<5}  {o['size']//1024}KB")
+        sep()
+        print(f"  {C}[d 1,3]{RST} Delete selected   {C}[all]{RST} Delete all   {C}[r]{RST} Rescan   {C}[0]{RST} {t('menu.back')}")
+        sep()
+        cmd = prompt()
+        if cmd == "0":
+            break
+        if cmd == "r":
+            orphans = []; continue
+        if cmd.lower() == "all":
+            warn(f"Delete all {len(orphans)} orphaned files ({total_size//1024//1024} MB)?")
+            if prompt(t("prompt.type_yes")).upper() in ("YES", "ANO"):
+                deleted, freed = delete_msi_files(orphans, logger)
+                ok(f"Deleted {deleted} files — freed {freed//1024//1024} MB.")
+                orphans = []
+            pause(); continue
+        parts = cmd.split(None, 1)
+        if parts and parts[0] == "d" and len(parts) > 1:
+            idxs = _parse_nums(parts[1], len(orphans))
+            if not idxs:
+                err("Invalid number."); pause(); continue
+            selected = [orphans[i] for i in idxs]
+            deleted, freed = delete_msi_files(selected, logger)
+            ok(f"Deleted {deleted} files — freed {freed//1024//1024} MB.")
+            orphans = [o for j, o in enumerate(orphans) if j not in idxs]
+            pause()
+
+
+# ── 38. SYSTEM INFO ──────────────────────────────────────────
+
+def menu_sysinfo(logger: CleanerLogger):
+    from core.sysinfo import collect, export_to_file
+    header("System Info Snapshot")
+    info("Collecting system information…")
+    data = collect(logger)
+
+    def _fmt(val) -> str:
+        return str(val) if val is not None else "—"
+
+    sep()
+    os_info = data.get("os", {})
+    print(f"  {B}OS{RST}       {os_info.get('edition') or os_info.get('name','')}  build {os_info.get('build','')}")
+    print(f"           Hostname: {os_info.get('hostname','')}   User: {os_info.get('username','')}")
+    print(f"           Installed: {os_info.get('install_date','')}   Last boot: {os_info.get('last_boot','')}")
+
+    cpu = data.get("cpu", {})
+    print(f"\n  {B}CPU{RST}      {cpu.get('name','')}")
+    print(f"           {cpu.get('physical_cores',0)} physical / {cpu.get('logical_cores',0)} logical cores   "
+          f"{cpu.get('freq_mhz',0)} MHz   Usage: {cpu.get('usage_pct',0)}%")
+
+    ram = data.get("ram", {})
+    print(f"\n  {B}RAM{RST}      {ram.get('total_gb',0)} GB total   {ram.get('available_gb',0)} GB free   "
+          f"{ram.get('used_pct',0)}% used")
+    for stick in data.get("ram_sticks", []):
+        print(f"           Stick: {stick.get('manufacturer','')} {stick.get('capacity_gb',0)} GB @ {stick.get('speed_mhz',0)} MHz")
+
+    for gpu in data.get("gpu", []):
+        print(f"\n  {B}GPU{RST}      {gpu.get('name','')}   VRAM: {gpu.get('vram_mb',0)} MB   Driver: {gpu.get('driver','')}")
+
+    sep()
+    print(f"\n  {B}Disks{RST}")
+    for d in data.get("disks", []):
+        bar_len = 20
+        pct = d.get("pct", 0)
+        filled = int(bar_len * pct / 100)
+        bar = f"{G}{'█' * filled}{DIM}{'░' * (bar_len - filled)}{RST}"
+        print(f"    {d.get('device',''):<12} {bar}  {pct}%  "
+              f"{d.get('used_gb',0)}/{d.get('total_gb',0)} GB  ({d.get('fstype','')})")
+
+    sep()
+    print(f"\n  {B}Network{RST}")
+    for net in data.get("network", []):
+        print(f"    {net.get('interface',''):<20}  {', '.join(net.get('addresses', []))}")
+
+    sep()
+    print(f"\n  {C}[e]{RST} Export to file   {C}[0]{RST} {t('menu.back')}")
+    sep()
+    cmd = prompt()
+    if cmd.lower() == "e":
+        path = export_to_file(data, logger=logger)
+        ok(f"Saved to: {path}")
+        pause()
+
+
+# ── 39. NETWORK SPEED TEST ───────────────────────────────────
+
+def menu_netspeed(logger: CleanerLogger):
+    from core.netspeed import run_full_test, ping_latency, dns_resolution_time
+    while True:
+        header("Network Speed Test")
+        sep()
+        print(f"  {C}[1]{RST} Full test (latency + DNS + download ~10 MB)")
+        print(f"  {C}[2]{RST} Ping only")
+        print(f"  {C}[3]{RST} DNS resolution test")
+        print(f"  {C}[0]{RST} {t('menu.back')}")
+        sep()
+        cmd = prompt()
+        if cmd == "0":
+            break
+        if cmd == "1":
+            info("Running full network test…")
+            results = run_full_test(logger)
+            sep()
+            print(f"  {B}Latency{RST}")
+            for p in results.get("ping", []):
+                status = f"avg {p['avg_ms']} ms  min {p['min_ms']} ms  max {p['max_ms']} ms"
+                if not p["success"]:
+                    status = f"{R}unreachable{RST}"
+                print(f"    {p['host']:<20}  {status}")
+            print(f"\n  {B}DNS Resolution{RST}")
+            for d in results.get("dns", []):
+                status = f"{d['ms']} ms" if d["success"] else f"{R}failed{RST}"
+                print(f"    {d['host']:<25}  {status}")
+            dl = results.get("download", {})
+            print(f"\n  {B}Download Speed{RST}")
+            if dl.get("success"):
+                print(f"    {G}{dl['mbps']} Mbps{RST}   "
+                      f"({dl['bytes']//1024//1024} MB in {dl['elapsed_s']}s)")
+            else:
+                print(f"    {R}Download test failed: {dl.get('error','')}{RST}")
+            sep()
+            summary = results.get("summary", {})
+            print(f"  Avg ping: {summary.get('avg_ping_ms',0)} ms   "
+                  f"Download: {G}{summary.get('download_mbps',0)} Mbps{RST}")
+            pause()
+        elif cmd == "2":
+            info("Pinging…")
+            from core.netspeed import PING_HOSTS
+            sep()
+            for h in PING_HOSTS:
+                res = ping_latency(h)
+                status = f"avg {res['avg_ms']} ms" if res["success"] else f"{R}unreachable{RST}"
+                print(f"    {h:<20}  {status}")
+            pause()
+        elif cmd == "3":
+            info("Resolving hostnames…")
+            from core.netspeed import DNS_HOSTS
+            sep()
+            for h in DNS_HOSTS:
+                res = dns_resolution_time(h)
+                status = f"{res['ms']} ms" if res["success"] else f"{R}failed{RST}"
+                print(f"    {h:<25}  {status}")
+            pause()
+
+
+# ── 40. WINDOWS UPDATE MANAGER ───────────────────────────────
+
+def menu_winupdate(logger: CleanerLogger):
+    from core.winupdate import (get_installed_updates, check_pending_updates,
+                                 get_update_pause_status, pause_updates,
+                                 resume_updates, trigger_update_check)
+    while True:
+        header("Windows Update Manager")
+        status = get_update_pause_status(logger)
+        paused_lbl = f"  {Y}[PAUSED]{RST}" if status.get("paused") else f"  {G}[ACTIVE]{RST}"
+        print(f"  Updates: {paused_lbl}")
+        sep()
+        print(f"  {C}[1]{RST} Show installed updates (last 30)")
+        print(f"  {C}[2]{RST} Check for pending updates")
+        print(f"  {C}[3]{RST} Pause updates (7 / 14 / 35 days)")
+        print(f"  {C}[4]{RST} Resume updates")
+        print(f"  {C}[5]{RST} Trigger update scan now")
+        print(f"  {C}[0]{RST} {t('menu.back')}")
+        sep()
+        cmd = prompt()
+        if cmd == "0":
+            break
+        elif cmd == "1":
+            info("Fetching installed updates…")
+            updates = get_installed_updates(logger)
+            sep()
+            if not updates:
+                warn("No updates found (or Get-HotFix unavailable).")
+            else:
+                print(f"  {'#':>3}  {'ID':<12}  {'Description':<20}  {'Installed':<12}  By")
+                sep("-")
+                for i, u in enumerate(updates):
+                    print(f"  {i+1:>3}  {u['id']:<12}  {u['description'][:20]:<20}  {u['installed_on']:<12}  {u['installed_by'][:20]}")
+            pause()
+        elif cmd == "2":
+            info("Searching for pending updates (may take 30–60s)…")
+            pending = check_pending_updates(logger)
+            sep()
+            if not pending:
+                ok("No pending updates found.")
+            else:
+                print(f"  {len(pending)} update(s) available:")
+                sep("-")
+                for u in pending:
+                    sev_color = R if u["severity"] in ("Critical", "Important") else W
+                    print(f"    {sev_color}[{u['severity'][:9]}]{RST}  {u['title']}  ({u['size_mb']} MB)")
+            pause()
+        elif cmd == "3":
+            print(f"  {C}[1]{RST} Pause 7 days   {C}[2]{RST} Pause 14 days   {C}[3]{RST} Pause 35 days")
+            c2 = prompt()
+            days = {"1": 7, "2": 14, "3": 35}.get(c2, 0)
+            if days:
+                if pause_updates(days, logger):
+                    ok(f"Updates paused for {days} days.")
+                else:
+                    err("Failed (admin required).")
+            pause()
+        elif cmd == "4":
+            if resume_updates(logger):
+                ok("Updates resumed.")
+            else:
+                err("Failed (admin required).")
+            pause()
+        elif cmd == "5":
+            if trigger_update_check(logger):
+                ok("Update scan triggered — check Windows Update in Settings.")
+            else:
+                err("Failed to trigger scan.")
+            pause()
+
+
+# ── 41. DNS + HOSTS ──────────────────────────────────────────
+
+def menu_dns_hosts(logger: CleanerLogger):
+    from core.dnstools import (flush_dns, get_dns_servers, read_hosts,
+                                add_hosts_entry, delete_hosts_entry,
+                                display_dns_cache)
+    while True:
+        header("DNS Tools & Hosts Editor")
+        servers = get_dns_servers()
+        print(f"  DNS servers: {', '.join(servers) or 'unknown'}")
+        sep()
+        print(f"  {C}[1]{RST} Flush DNS cache")
+        print(f"  {C}[2]{RST} View hosts file entries")
+        print(f"  {C}[3]{RST} Add hosts entry")
+        print(f"  {C}[4]{RST} Delete hosts entry")
+        print(f"  {C}[5]{RST} View cached DNS records")
+        print(f"  {C}[0]{RST} {t('menu.back')}")
+        sep()
+        cmd = prompt()
+        if cmd == "0":
+            break
+        elif cmd == "1":
+            if flush_dns(logger):
+                ok("DNS cache flushed.")
+            else:
+                err("Flush failed (admin required).")
+            pause()
+        elif cmd == "2":
+            entries = read_hosts(logger)
+            sep()
+            if not entries:
+                warn("No custom entries in hosts file.")
+            else:
+                print(f"  {'#':>3}  {'IP':<20}  {'Hostname':<40}  Comment")
+                sep("-")
+                for i, e in enumerate(entries):
+                    block_tag = f"  {DIM}[blocker]{RST}" if e.get("is_blocker") else ""
+                    print(f"  {i+1:>3}  {e['ip']:<20}  {e['host'][:40]:<40}  {e.get('comment','')[:20]}{block_tag}")
+            pause()
+        elif cmd == "3":
+            ip   = prompt("IP address: ").strip()
+            host = prompt("Hostname:   ").strip()
+            if ip and host:
+                if add_hosts_entry(ip, host, logger):
+                    ok(f"Added: {ip} → {host}")
+                else:
+                    err("Failed (admin required to edit hosts).")
+            pause()
+        elif cmd == "4":
+            host = prompt("Hostname to remove: ").strip()
+            if host:
+                if delete_hosts_entry(host, logger):
+                    ok(f"Removed: {host}")
+                else:
+                    err("Failed (admin required).")
+            pause()
+        elif cmd == "5":
+            info("Reading DNS cache…")
+            cache = display_dns_cache(logger)
+            sep()
+            if not cache:
+                warn("Cache empty or unavailable.")
+            else:
+                for e in cache[:50]:
+                    print(f"    {e.get('name',''):<40}  type {e.get('type',''):<5}  {e.get('data','')}")
+            pause()
+
+
+# ── 42. AD BLOCKER ────────────────────────────────────────────
+
+def menu_adblocker(logger: CleanerLogger):
+    from core.adblocker import is_enabled, enable, disable, get_blocked_domains, BLOCK_LIST
+    while True:
+        header("Hosts-based Ad Blocker")
+        active = is_enabled()
+        status_lbl = f"{G}ENABLED{RST}" if active else f"{R}DISABLED{RST}"
+        print(f"  Status: {status_lbl}")
+        if active:
+            domains = get_blocked_domains()
+            print(f"  {len(domains)} domains currently blocked")
+        else:
+            print(f"  {len(BLOCK_LIST)} domains in block list")
+        sep()
+        print(f"  {C}[1]{RST} {'Disable' if active else 'Enable'} ad blocker")
+        print(f"  {C}[2]{RST} View block list")
+        print(f"  {C}[0]{RST} {t('menu.back')}")
+        sep()
+        cmd = prompt()
+        if cmd == "0":
+            break
+        elif cmd == "1":
+            if active:
+                warn("This will remove the ad-blocking entries from your hosts file.")
+                if prompt(t("prompt.type_yes")).upper() in ("YES", "ANO"):
+                    if disable(logger):
+                        ok("Ad blocker disabled.")
+                    else:
+                        err("Failed (admin required to edit hosts).")
+            else:
+                info("Adding block list to hosts file…")
+                success, count = enable(logger)
+                if success:
+                    ok(f"Ad blocker enabled — {count} domains blocked.")
+                else:
+                    err("Failed (admin required to edit hosts).")
+            pause()
+        elif cmd == "2":
+            domains = get_blocked_domains() if active else BLOCK_LIST
+            sep()
+            for d in domains:
+                print(f"    0.0.0.0  {d}")
+            pause()
+
+
+# ── 43. WAKE-ON-LAN ──────────────────────────────────────────
+
+_WOL_DEVICES_PATH = "wol_devices.json"
+
+
+def menu_wol(logger: CleanerLogger):
+    from core.wol import send_magic_packet, validate_mac, load_devices, save_devices
+    devices: list[dict] = load_devices(_WOL_DEVICES_PATH)
+    while True:
+        header("Wake-on-LAN")
+        sep()
+        if devices:
+            print(f"  {'#':>3}  {'Name':<25}  {'MAC Address':<20}  Broadcast")
+            sep("-")
+            for i, d in enumerate(devices):
+                print(f"  {i+1:>3}  {d.get('name','')[:25]:<25}  {d['mac']:<20}  {d.get('broadcast','255.255.255.255')}")
+        else:
+            print(f"  {DIM}No saved devices.{RST}")
+        sep()
+        print(f"  {C}[w 1,3]{RST} Wake device(s)   {C}[add]{RST} Add device   {C}[del 1]{RST} Remove")
+        print(f"  {C}[send <MAC>]{RST} Send one-time packet   {C}[0]{RST} {t('menu.back')}")
+        sep()
+        cmd = prompt()
+        if cmd == "0":
+            break
+        if cmd.lower() == "add":
+            name = prompt("Device name: ").strip()
+            mac  = prompt("MAC address (XX:XX:XX:XX:XX:XX): ").strip()
+            bc   = prompt("Broadcast IP (Enter for 255.255.255.255): ").strip() or "255.255.255.255"
+            if not validate_mac(mac):
+                err("Invalid MAC address format."); pause(); continue
+            devices.append({"name": name, "mac": mac, "broadcast": bc})
+            save_devices(devices, _WOL_DEVICES_PATH)
+            ok(f"Saved: {name}")
+            pause(); continue
+        parts = cmd.split(None, 1)
+        if parts and parts[0] == "send" and len(parts) > 1:
+            mac = parts[1].strip()
+            if send_magic_packet(mac, logger=logger):
+                ok(f"Magic packet sent to {mac}")
+            else:
+                err("Failed — check MAC format.")
+            pause(); continue
+        if parts and parts[0] == "del" and len(parts) > 1:
+            idxs = _parse_nums(parts[1], len(devices))
+            if not idxs:
+                err("Invalid number."); pause(); continue
+            for idx in sorted(idxs, reverse=True):
+                removed = devices.pop(idx)
+                ok(f"Removed: {removed.get('name','')}")
+            save_devices(devices, _WOL_DEVICES_PATH)
+            pause(); continue
+        if parts and parts[0] == "w" and len(parts) > 1:
+            idxs = _parse_nums(parts[1], len(devices))
+            if not idxs:
+                err("Invalid number."); pause(); continue
+            for idx in idxs:
+                d = devices[idx]
+                if send_magic_packet(d["mac"], d.get("broadcast", "255.255.255.255"), logger=logger):
+                    ok(f"Woke: {d.get('name', d['mac'])}")
+                else:
+                    err(f"Failed: {d.get('name', d['mac'])}")
             pause()
 
 
