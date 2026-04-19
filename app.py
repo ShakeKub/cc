@@ -1,5 +1,6 @@
 """System Cleaner - pure terminal interface."""
 
+import json
 import os
 import queue as _queue
 import sys
@@ -7,6 +8,17 @@ import threading
 from pathlib import Path
 
 from core.logger import CleanerLogger
+from core.i18n import t, set_language, get_language, available_languages
+
+# ── Load language from config ────────────────────────────────
+def _load_language_from_config():
+    cfg_path = Path(__file__).parent / "config.json"
+    try:
+        cfg = json.loads(cfg_path.read_text(encoding="utf-8"))
+        lang = cfg.get("language", "en")
+        set_language(lang)
+    except Exception:
+        set_language("en")
 
 # ── ANSI colours ────────────────────────────────────────────
 R  = "\033[31m"   # red
@@ -68,7 +80,7 @@ def warn(msg):
 
 def pause():
     try:
-        input(f"\n  {DIM}Press Enter to continue...{RST}")
+        input(f"\n  {DIM}{t('prompt.press_enter')}{RST}")
     except (KeyboardInterrupt, EOFError):
         pass
 
@@ -91,138 +103,194 @@ def is_admin() -> bool:
 
 # ── MAIN MENU ───────────────────────────────────────────────
 
-MENU = [
-    ("1",  "System Scan"),
-    ("2",  "Quick Clean"),
-    ("3",  "Standard Clean"),
-    ("4",  "Deep Clean"),
-    ("17", "Team Clean  [ALL-IN-ONE]"),
-    ("5",  "Browser Tools"),
-    ("6",  "Process Manager"),
-    ("7",  "Network Tools"),
-    ("8",  "Startup Manager"),
-    ("9",  "Disk Tools"),
-    ("10", "Registry Cleaner"),
-    ("11", "Optimizer"),
-    ("12", "Privacy & Security"),
-    ("13", "App Tracer"),
-    ("18", "Scout Mode"),
-    ("14", "Uninstaller"),
-    ("15", "Scheduler"),
-    ("19", "System Health"),
-    ("16", "Logs & Reports"),
-    ("0",  "Exit"),
-]
+def _menu_categories():
+    """Return categorised menu structure. Rebuilt each loop so t() reflects current language."""
+    return [
+        (t("cat.cleaning"), [
+            ("1",  t("menu.system_scan")),
+            ("2",  t("menu.quick_clean")),
+            ("3",  t("menu.standard_clean")),
+            ("4",  t("menu.deep_clean")),
+            ("5",  t("menu.team_clean")),
+        ]),
+        (t("cat.file_tools"), [
+            ("6",  t("menu.duplicates")),
+            ("7",  t("menu.large_files")),
+            ("8",  t("menu.empty_folders")),
+            ("9",  t("menu.secure_wipe")),
+        ]),
+        (t("cat.tools"), [
+            ("10", t("menu.browser_tools")),
+            ("11", t("menu.process_mgr")),
+            ("12", t("menu.network_tools")),
+            ("13", t("menu.startup_mgr")),
+            ("14", t("menu.disk_tools")),
+            ("15", t("menu.registry")),
+            ("16", t("menu.optimizer")),
+            ("17", t("menu.privacy")),
+            ("18", t("menu.uninstaller")),
+            ("19", t("menu.autoruns")),
+            ("20", t("menu.context_menu")),
+        ]),
+        (t("cat.monitoring"), [
+            ("21", t("menu.app_tracer")),
+            ("22", t("menu.scout_mode")),
+            ("23", t("menu.health")),
+            ("24", t("menu.crash_logs")),
+        ]),
+        (t("cat.system"), [
+            ("25", t("menu.history_mgr")),
+            ("26", t("menu.restore_points")),
+            ("27", t("menu.scheduler")),
+            ("28", t("menu.logs")),
+            ("29", t("menu.language")),
+        ]),
+    ]
+
+
+def _print_menu_categories(categories):
+    COL_W = 28  # width of each column entry (number + label)
+    for cat_label, items in categories:
+        # category header
+        label_pad = 54 - len(cat_label)
+        print(f"  {DIM}── {cat_label} {'─' * max(label_pad, 2)}{RST}")
+        # items in pairs
+        for i in range(0, len(items), 2):
+            num_l, lbl_l = items[i]
+            left  = f"  {C}[{num_l:>2}]{RST} {lbl_l}"
+            if i + 1 < len(items):
+                num_r, lbl_r = items[i + 1]
+                right = f"  {C}[{num_r:>2}]{RST} {lbl_r}"
+            else:
+                right = ""
+            print(f"{left:<{COL_W + 12}}{right}")
+        print()
+
+
+_DISPATCH = {
+    "1":  lambda l: menu_scan(l),
+    "2":  lambda l: menu_clean(l, "quick"),
+    "3":  lambda l: menu_clean(l, "standard"),
+    "4":  lambda l: menu_clean(l, "deep"),
+    "5":  lambda l: menu_team_clean(l),
+    "6":  lambda l: menu_duplicates(l),
+    "7":  lambda l: menu_large_files(l),
+    "8":  lambda l: menu_empty_folders(l),
+    "9":  lambda l: menu_secure_wipe(l),
+    "10": lambda l: menu_browser(l),
+    "11": lambda l: menu_process(l),
+    "12": lambda l: menu_network(l),
+    "13": lambda l: menu_startup(l),
+    "14": lambda l: menu_disk(l),
+    "15": lambda l: menu_registry(l),
+    "16": lambda l: menu_optimizer(l),
+    "17": lambda l: menu_privacy(l),
+    "18": lambda l: menu_uninstaller(l),
+    "19": lambda l: menu_autoruns(l),
+    "20": lambda l: menu_context_menu(l),
+    "21": lambda l: menu_tracer(l),
+    "22": lambda l: menu_scout(l),
+    "23": lambda l: menu_health(l),
+    "24": lambda l: menu_crash_logs(l),
+    "25": lambda l: menu_history(l),
+    "26": lambda l: menu_restore_points(l),
+    "27": lambda l: menu_scheduler(l),
+    "28": lambda l: menu_logs(l),
+    "29": lambda l: menu_language(l),
+}
 
 
 def main_menu(logger: CleanerLogger):
     import psutil
+    _load_language_from_config()
     while True:
         header()
 
-        # quick stats line
+        # status bar
         try:
-            cpu = psutil.cpu_percent(interval=0)
-            ram = psutil.virtual_memory()
+            cpu  = psutil.cpu_percent(interval=0)
+            ram  = psutil.virtual_memory()
             disk = psutil.disk_usage("C:\\" if os.name == "nt" else "/")
-            print(f"  CPU {cpu:.0f}%  |  RAM {ram.percent:.0f}% ({fmt_bytes(ram.used)}/{fmt_bytes(ram.total)})  |  Disk free {fmt_bytes(disk.free)}")
+            print(f"  CPU {cpu:.0f}%  │  RAM {ram.percent:.0f}% ({fmt_bytes(ram.used)}/{fmt_bytes(ram.total)})  │  Disk free {fmt_bytes(disk.free)}")
         except Exception:
             pass
 
-        admin_tag = f"{G}[ADMIN]{RST}" if is_admin() else f"{Y}[no admin]{RST}"
+        admin_tag = f"{G}[{t('status.admin')}]{RST}" if is_admin() else f"{Y}[{t('status.no_admin')}]{RST}"
         print(f"  {admin_tag}")
         sep()
 
-        # two-column menu
-        left  = MENU[:len(MENU)//2 + 1]
-        right = MENU[len(MENU)//2 + 1:]
-        for i in range(max(len(left), len(right))):
-            l = f"  [{left[i][0]:>2}] {left[i][1]:<22}" if i < len(left) else " " * 32
-            r = f"[{right[i][0]:>2}] {right[i][1]}" if i < len(right) else ""
-            print(f"{C}{l}{RST}{C}{r}{RST}")
+        _print_menu_categories(_menu_categories())
 
+        print(f"  {C}[ 0]{RST} {t('menu.exit')}")
         sep()
         choice = prompt()
 
-        if choice == "0" or choice in ("q", "exit", "quit"):
+        if choice in ("0", "q", "exit", "quit"):
             clr()
-            print(f"\n  {G}Bye.{RST}\n")
+            print(f"\n  {G}{t('app.bye')}{RST}\n")
             logger.export_json()
             sys.exit(0)
-        elif choice == "1":  menu_scan(logger)
-        elif choice == "2":  menu_clean(logger, "quick")
-        elif choice == "3":  menu_clean(logger, "standard")
-        elif choice == "4":  menu_clean(logger, "deep")
-        elif choice == "5":  menu_browser(logger)
-        elif choice == "6":  menu_process(logger)
-        elif choice == "7":  menu_network(logger)
-        elif choice == "8":  menu_startup(logger)
-        elif choice == "9":  menu_disk(logger)
-        elif choice == "10": menu_registry(logger)
-        elif choice == "11": menu_optimizer(logger)
-        elif choice == "12": menu_privacy(logger)
-        elif choice == "13": menu_tracer(logger)
-        elif choice == "14": menu_uninstaller(logger)
-        elif choice == "15": menu_scheduler(logger)
-        elif choice == "16": menu_logs(logger)
-        elif choice == "17": menu_team_clean(logger)
-        elif choice == "18": menu_scout(logger)
-        elif choice == "19": menu_health(logger)
+
+        action = _DISPATCH.get(choice)
+        if action:
+            action(logger)
         else:
-            err("Unknown option.")
+            err(t("app.unknown_option"))
             pause()
 
 
 # ── 1. SCAN ─────────────────────────────────────────────────
 
 def menu_scan(logger: CleanerLogger):
-    header("System Scan")
-    info("Scanning system, please wait...")
+    header(t("hdr.system_scan"))
+    info(t("scan.scanning"))
     try:
         from core.cleaner import scan_all
         results = scan_all(logger)
         sep()
-        ok(f"Temp files : {results.get('temp_files', 0)}  ({fmt_bytes(results.get('temp_size', 0))})")
+        ok(t("scan.temp_files", count=results.get('temp_files', 0), size=fmt_bytes(results.get('temp_size', 0))))
         for cat, d in results.get("categories", {}).items():
             print(f"    {cat:<30} {d.get('count',0):>5} items   {fmt_bytes(d.get('size',0)):>10}")
         sep()
-        ok(f"Total cleanable: {fmt_bytes(results.get('temp_size', 0))}")
+        ok(t("scan.total", size=fmt_bytes(results.get('temp_size', 0))))
     except Exception as e:
-        err(f"Scan failed: {e}")
+        err(t("scan.failed", err=e))
 
-    # Suspicious process check
-    info("Checking for suspicious processes...")
+    info(t("scan.check_procs"))
     try:
         from core.process import list_processes
         procs = list_processes(sort_by="memory", logger=logger)
         suspicious = [p for p in procs if p.get("suspicious")]
         if suspicious:
             sep()
-            warn(f"Found {len(suspicious)} suspicious process(es):")
+            warn(t("scan.suspicious", count=len(suspicious)))
             for p in suspicious:
                 reasons = p["suspicious"].get("reasons", [])
                 risk = p["suspicious"].get("risk", "?")
                 rc = R if risk == "high" else Y
                 print(f"  {rc}[{risk.upper()}]{RST}  {p['name']:<28} PID {p['pid']:>7}  {', '.join(reasons[:2])}")
         else:
-            ok("No suspicious processes detected.")
+            ok(t("scan.no_sus"))
     except Exception as e:
-        warn(f"Process check skipped: {e}")
+        warn(t("scan.proc_skip", err=e))
 
     pause()
 
 
 # ── 2/3/4. CLEAN ────────────────────────────────────────────
 
+_PROFILE_HDR = {"quick": "hdr.quick_clean", "standard": "hdr.standard_clean", "deep": "hdr.deep_clean"}
+
+
 def menu_clean(logger: CleanerLogger, profile: str):
-    header(f"{profile.capitalize()} Clean")
-    warn(f"This will remove junk files using the '{profile}' profile.")
-    confirm = prompt("Type YES to confirm: ")
-    if confirm.upper() != "YES":
-        info("Cancelled.")
+    header(t(_PROFILE_HDR.get(profile, "hdr.deep_clean")))
+    warn(t("clean.warning", profile=profile))
+    confirm = prompt(t("prompt.type_yes_confirm"))
+    if confirm.upper() not in ("YES", "ANO"):
+        info(t("clean.cancelled"))
         pause()
         return
-    info("Cleaning...")
+    info(t("clean.cleaning"))
     try:
         import psutil, json
         from core.cleaner import clean_all
@@ -248,16 +316,16 @@ def menu_clean(logger: CleanerLogger, profile: str):
             disk_delta = 0
 
         sep()
-        ok(f"Done! Files cleaned: {fmt_bytes(freed_reported)}")
+        ok(t("clean.done", size=fmt_bytes(freed_reported)))
         if disk_delta > 0:
-            ok(f"Disk space gained : {fmt_bytes(disk_delta)}  (measured on {disk_root})")
+            ok(t("clean.disk_gain", size=fmt_bytes(disk_delta), root=disk_root))
         elif disk_before is not None:
-            info("Disk free space unchanged (files may be in use or already freed by OS)")
+            info(t("clean.unchanged"))
         for name, size in results.get("actions", []):
             display = fmt_bytes(size) if size else "done"
             print(f"    {name:<35} {display}")
     except Exception as e:
-        err(f"Clean failed: {e}")
+        err(t("clean.failed", err=e))
     pause()
 
 
@@ -265,12 +333,12 @@ def menu_clean(logger: CleanerLogger, profile: str):
 
 def menu_browser(logger: CleanerLogger):
     while True:
-        header("Browser Tools")
-        print(f"  {C}[1]{RST} Detect browsers")
-        print(f"  {C}[2]{RST} Clean cache")
-        print(f"  {C}[3]{RST} Clean cookies")
-        print(f"  {C}[4]{RST} Clean all")
-        print(f"  {C}[0]{RST} Back")
+        header(t("hdr.browser"))
+        print(f"  {C}[1]{RST} {t('browser.detect')}")
+        print(f"  {C}[2]{RST} {t('browser.cache')}")
+        print(f"  {C}[3]{RST} {t('browser.cookies')}")
+        print(f"  {C}[4]{RST} {t('browser.all')}")
+        print(f"  {C}[0]{RST} {t('menu.back')}")
         sep()
         c = prompt()
         if c == "0": break
@@ -280,7 +348,7 @@ def menu_browser(logger: CleanerLogger):
                 browsers = detect_installed_browsers()
                 sep()
                 if not browsers:
-                    warn("No browsers detected.")
+                    warn(t("browser.none"))
                 for b in browsers:
                     ok(f"{b['display_name']:<20} profiles: {b['profiles']}  cache: {fmt_bytes(b['cache_size'])}")
             except Exception as e:
@@ -288,18 +356,18 @@ def menu_browser(logger: CleanerLogger):
             pause()
         elif c in ("2", "3", "4"):
             mode = {"2": "cache", "3": "cookies", "4": "all"}[c]
-            warn(f"Will clean {mode} for all browsers.")
-            if prompt("Type YES: ").upper() == "YES":
+            warn(t("browser.will_clean", mode=mode))
+            if prompt(t("prompt.type_yes")).upper() in ("YES", "ANO"):
                 try:
                     from core.browser import clean_all_browsers
                     kwargs = {mode: True} if mode != "all" else {"cache": True, "cookies": True, "history": True}
                     results = clean_all_browsers(logger, **kwargs)
                     total = sum(sum(v.values()) for v in results.values())
-                    ok(f"Freed: {fmt_bytes(total)}")
+                    ok(t("browser.freed", size=fmt_bytes(total)))
                 except Exception as e:
                     err(str(e))
             else:
-                info("Cancelled.")
+                info(t("browser.cancelled"))
             pause()
 
 
@@ -307,8 +375,8 @@ def menu_browser(logger: CleanerLogger):
 
 def menu_process(logger: CleanerLogger):
     while True:
-        header("Process Manager")
-        info("Loading processes...")
+        header(t("hdr.process"))
+        info(t("proc.loading"))
         try:
             from core.process import list_processes
             procs = list_processes(sort_by="memory", logger=logger)
@@ -322,19 +390,19 @@ def menu_process(logger: CleanerLogger):
                 if p.get("is_heavy"):   flags += f" {Y}HVY{RST}"
                 print(f"  {p['pid']:>7}  {p['name']:<28}  {p['cpu_percent']:>5.1f}%  {fmt_bytes(p['memory_bytes']):>10}  {p['status']:<10}{flags}")
             sep()
-            print(f"  Total: {len(procs)} processes")
+            print(f"  {t('proc.total', count=len(procs))}")
         except Exception as e:
             err(str(e))
             pause()
             break
 
-        print(f"\n  {C}[k]{RST} Kill PID   {C}[f]{RST} Filter name   {C}[r]{RST} Refresh   {C}[0]{RST} Back")
+        print(f"\n  {C}[k]{RST} {t('proc.kill')}   {C}[f]{RST} {t('proc.filter')}   {C}[r]{RST} {t('proc.refresh')}   {C}[0]{RST} {t('menu.back')}")
         sep()
         c = prompt()
         if c == "0": break
         elif c == "r": continue
         elif c == "f":
-            name_filter = prompt("Filter by name (Enter to clear): ").strip().lower()
+            name_filter = prompt(t("proc.filter_ask")).strip().lower()
             if name_filter:
                 try:
                     from core.process import list_processes
@@ -345,21 +413,21 @@ def menu_process(logger: CleanerLogger):
                         flags = ""
                         if p.get("suspicious"): flags += f" {R}SUS{RST}"
                         print(f"  {p['pid']:>7}  {p['name']:<28}  {p['cpu_percent']:>5.1f}%  {fmt_bytes(p['memory_bytes']):>10}  {p['status']}{flags}")
-                    info(f"Found {len(filtered)} processes matching '{name_filter}'")
+                    info(t("proc.filter_res", count=len(filtered), query=name_filter))
                 except Exception as e:
                     err(str(e))
             pause()
         elif c == "k":
-            pid_str = prompt("Enter PID to kill: ")
+            pid_str = prompt(t("proc.pid_ask"))
             try:
                 from core.process import kill_process
                 pid = int(pid_str)
-                warn(f"Kill PID {pid}?")
-                if prompt("Type YES: ").upper() == "YES":
+                warn(t("proc.kill_conf", pid=pid))
+                if prompt(t("prompt.type_yes")).upper() in ("YES", "ANO"):
                     success = kill_process(pid, logger)
-                    ok(f"Process {pid} terminated.") if success else err("Failed.")
+                    ok(t("proc.killed", pid=pid)) if success else err(t("proc.kill_fail"))
             except ValueError:
-                err("Invalid PID.")
+                err(t("proc.bad_pid"))
             pause()
 
 
@@ -367,12 +435,12 @@ def menu_process(logger: CleanerLogger):
 
 def menu_network(logger: CleanerLogger):
     while True:
-        header("Network Tools")
-        print(f"  {C}[1]{RST} Show connections & IP info")
-        print(f"  {C}[2]{RST} Flush DNS")
-        print(f"  {C}[3]{RST} Ping a host")
-        print(f"  {C}[4]{RST} Run diagnostics")
-        print(f"  {C}[0]{RST} Back")
+        header(t("hdr.network"))
+        print(f"  {C}[1]{RST} {t('net.connections')}")
+        print(f"  {C}[2]{RST} {t('net.flush')}")
+        print(f"  {C}[3]{RST} {t('net.ping')}")
+        print(f"  {C}[4]{RST} {t('net.diag')}")
+        print(f"  {C}[0]{RST} {t('menu.back')}")
         sep()
         c = prompt()
         if c == "0": break
@@ -402,12 +470,12 @@ def menu_network(logger: CleanerLogger):
             try:
                 from core.network import flush_dns
                 success = flush_dns(logger)
-                ok("DNS cache flushed.") if success else err("Flush failed.")
+                ok(t("net.flushed")) if success else err(t("net.flush_fail"))
             except Exception as e:
                 err(str(e))
             pause()
         elif c == "3":
-            host = prompt("Host to ping: ")
+            host = prompt(t("net.ping_ask"))
             if host:
                 import subprocess
                 result = subprocess.run(["ping", "-n", "4", host], capture_output=True, text=True)
@@ -430,8 +498,8 @@ def menu_network(logger: CleanerLogger):
 
 def menu_startup(logger: CleanerLogger):
     while True:
-        header("Startup Manager")
-        info("Loading startup entries...")
+        header(t("hdr.startup"))
+        info(t("startup.loading"))
         try:
             from core.startup import get_startup_entries
             entries = get_startup_entries(logger)
@@ -443,14 +511,14 @@ def menu_startup(logger: CleanerLogger):
         print(f"  {'#':>3}  {'Name':<30}  {'Status':<10}  {'Impact':<8}  {'Type'}")
         sep("-")
         for i, e in enumerate(entries):
-            status = f"{G}Enabled{RST}" if e.get("enabled") else f"{R}Disabled{RST}"
+            status = f"{G}{t('startup.enabled')}{RST}" if e.get("enabled") else f"{R}{t('startup.disabled')}{RST}"
             impact = e.get("impact", "medium")
             icolor = G if impact == "low" else Y if impact == "medium" else R
             flag = f" {R}[SUS]{RST}" if e.get("suspicious") else ""
             print(f"  {i+1:>3}  {e['name']:<30}  {status:<10}  {icolor}{impact:<8}{RST}  {e.get('type','')}{flag}")
         sep()
-        print(f"  Total: {len(entries)}")
-        print(f"\n  {C}[e #]{RST} Enable   {C}[d #]{RST} Disable   {C}[x #]{RST} Remove   {C}[0]{RST} Back")
+        print(f"  {t('startup.total', count=len(entries))}")
+        print(f"\n  {C}[e #]{RST} {t('startup.enable')}   {C}[d #]{RST} {t('startup.disable')}   {C}[x #]{RST} {t('startup.remove')}   {C}[0]{RST} {t('menu.back')}")
         sep()
         cmd = prompt()
         if cmd == "0": break
@@ -461,17 +529,17 @@ def menu_startup(logger: CleanerLogger):
                 entry = entries[idx]
                 if parts[0] == "e":
                     from core.startup import enable_startup_entry
-                    ok(f"Enabled: {entry['name']}") if enable_startup_entry(entry, logger) else err("Failed.")
+                    ok(t("startup.enabled_ok", name=entry['name'])) if enable_startup_entry(entry, logger) else err(t("startup.failed"))
                 elif parts[0] == "d":
                     from core.startup import disable_startup_entry
-                    ok(f"Disabled: {entry['name']}") if disable_startup_entry(entry, logger) else err("Failed.")
+                    ok(t("startup.disabled_ok", name=entry['name'])) if disable_startup_entry(entry, logger) else err(t("startup.failed"))
                 elif parts[0] == "x":
-                    warn(f"Remove '{entry['name']}'?")
-                    if prompt("Type YES: ").upper() == "YES":
+                    warn(t("startup.rem_conf", name=entry['name']))
+                    if prompt(t("prompt.type_yes")).upper() in ("YES", "ANO"):
                         from core.startup import remove_startup_entry
-                        ok("Removed.") if remove_startup_entry(entry, logger) else err("Failed.")
+                        ok(t("startup.removed")) if remove_startup_entry(entry, logger) else err(t("startup.failed"))
             except (ValueError, IndexError):
-                err("Invalid number.")
+                err(t("startup.bad_num"))
             pause()
 
 
@@ -479,7 +547,7 @@ def menu_startup(logger: CleanerLogger):
 
 def menu_disk(logger: CleanerLogger):
     while True:
-        header("Disk Tools")
+        header(t("hdr.disk"))
         root = "C:\\" if os.name == "nt" else "/"
         try:
             from core.disk import get_disk_usage
@@ -494,35 +562,35 @@ def menu_disk(logger: CleanerLogger):
         except Exception as e:
             err(str(e))
         sep()
-        print(f"  {C}[1]{RST} Find large files (>100MB)")
-        print(f"  {C}[2]{RST} Find duplicate files")
-        print(f"  {C}[3]{RST} Find empty folders")
-        print(f"  {C}[4]{RST} Analyze directory")
-        print(f"  {C}[5]{RST} Secure shred a file")
-        print(f"  {C}[0]{RST} Back")
+        print(f"  {C}[1]{RST} {t('disk.large')}")
+        print(f"  {C}[2]{RST} {t('disk.dupes')}")
+        print(f"  {C}[3]{RST} {t('disk.empty')}")
+        print(f"  {C}[4]{RST} {t('disk.analyze')}")
+        print(f"  {C}[5]{RST} {t('disk.shred')}")
+        print(f"  {C}[0]{RST} {t('menu.back')}")
         sep()
         c = prompt()
         if c == "0": break
         elif c == "1":
-            info("Searching for large files...")
+            info(t("disk.search_lg"))
             try:
                 from core.disk import find_large_files
                 files = find_large_files(root, min_size_mb=100, logger=logger)
                 sep()
                 for i, f in enumerate(files[:20]):
                     print(f"  {i+1:>3}. {f['name']:<35} {fmt_bytes(f['size']):>10}  {str(Path(f['path']).parent)[:40]}")
-                ok(f"Found {len(files)} files > 100 MB")
+                ok(t("disk.lg_found", count=len(files)))
             except Exception as e:
                 err(str(e))
             pause()
         elif c == "2":
-            path = prompt(f"Directory to scan [{root}]: ") or root
-            info("Scanning for duplicates (may take a while)...")
+            path = prompt(t("disk.dir_ask", root=root)) or root
+            info(t("disk.scan_dup"))
             try:
                 from core.disk import find_duplicate_files
                 dupes = find_duplicate_files(path, logger=logger)
                 sep()
-                ok(f"Found {len(dupes)} duplicate groups")
+                ok(t("disk.dup_found", count=len(dupes)))
                 for i, group in enumerate(dupes[:10]):
                     print(f"  Group {i+1}:")
                     for f in group:
@@ -531,19 +599,19 @@ def menu_disk(logger: CleanerLogger):
                 err(str(e))
             pause()
         elif c == "3":
-            path = prompt(f"Directory [{root}]: ") or root
+            path = prompt(t("disk.path_ask", root=root)) or root
             try:
                 from core.disk import find_empty_folders
                 empties = find_empty_folders(path, logger)
                 sep()
                 for f in empties[:20]:
                     print(f"  {f}")
-                ok(f"Found {len(empties)} empty folders")
+                ok(t("disk.emp_found", count=len(empties)))
             except Exception as e:
                 err(str(e))
             pause()
         elif c == "4":
-            path = prompt(f"Directory [{root}]: ") or root
+            path = prompt(t("disk.path_ask", root=root)) or root
             info("Analyzing...")
             try:
                 from core.disk import analyze_directory
@@ -551,22 +619,22 @@ def menu_disk(logger: CleanerLogger):
                 sep()
                 for entry in results[:20]:
                     print(f"  {fmt_bytes(entry.get('size',0)):>10}  {entry.get('path','')}")
-                ok(f"{len(results)} directories analyzed")
+                ok(t("disk.analyzed", count=len(results)))
             except Exception as e:
                 err(str(e))
             pause()
         elif c == "5":
-            path = prompt("File path to shred: ")
+            path = prompt(t("disk.shred_ask"))
             if path:
-                warn(f"PERMANENTLY destroy '{path}'? This cannot be undone!")
-                if prompt("Type YES: ").upper() == "YES":
+                warn(t("disk.shred_warn", path=path))
+                if prompt(t("prompt.type_yes")).upper() in ("YES", "ANO"):
                     try:
                         from core.disk import secure_shred
-                        ok("File shredded.") if secure_shred(path, passes=3, logger=logger) else err("Failed.")
+                        ok(t("disk.shred_ok")) if secure_shred(path, passes=3, logger=logger) else err(t("disk.shred_fail"))
                     except Exception as e:
                         err(str(e))
                 else:
-                    info("Cancelled.")
+                    info(t("clean.cancelled"))
             pause()
 
 
@@ -574,16 +642,16 @@ def menu_disk(logger: CleanerLogger):
 
 def menu_registry(logger: CleanerLogger):
     while True:
-        header("Registry Cleaner")
-        print(f"  {C}[1]{RST} Scan for invalid entries")
-        print(f"  {C}[2]{RST} Fix all invalid entries")
-        print(f"  {C}[3]{RST} Backup registry")
-        print(f"  {C}[0]{RST} Back")
+        header(t("hdr.registry"))
+        print(f"  {C}[1]{RST} {t('reg.scan')}")
+        print(f"  {C}[2]{RST} {t('reg.fix_all')}")
+        print(f"  {C}[3]{RST} {t('reg.backup')}")
+        print(f"  {C}[0]{RST} {t('menu.back')}")
         sep()
         c = prompt()
         if c == "0": break
         elif c == "1":
-            info("Scanning registry...")
+            info(t("reg.scanning"))
             try:
                 from core.registry import scan_invalid_entries
                 entries = scan_invalid_entries(logger)
@@ -594,18 +662,18 @@ def menu_registry(logger: CleanerLogger):
                     risk = e.get("risk","low")
                     rc = G if risk=="low" else Y if risk=="medium" else R
                     print(f"  {i+1:>3}  {e.get('category',''):<20}  {e.get('value_name','')[:30]:<30}  {e.get('issue','')[:30]:<30}  {rc}{risk}{RST}")
-                ok(f"Found {len(entries)} invalid entries")
+                ok(t("reg.found", count=len(entries)))
             except Exception as e:
                 err(str(e))
             pause()
         elif c == "2":
-            warn("Fix all invalid registry entries?")
-            if prompt("Type YES: ").upper() == "YES":
+            warn(t("reg.fix_conf"))
+            if prompt(t("prompt.type_yes")).upper() in ("YES", "ANO"):
                 try:
                     from core.registry import scan_invalid_entries, fix_all_invalid
                     entries = scan_invalid_entries(logger)
                     results = fix_all_invalid(entries, logger)
-                    ok(f"Fixed {results['fixed']}  Failed {results['failed']}  Skipped {results['skipped']}")
+                    ok(t("reg.fixed", fixed=results['fixed'], failed=results['failed'], skipped=results['skipped']))
                 except Exception as e:
                     err(str(e))
             pause()
@@ -614,9 +682,9 @@ def menu_registry(logger: CleanerLogger):
                 from core.registry import backup_registry
                 path = backup_registry(logger=logger)
                 if path:
-                    ok(f"Backup saved: {path}")
+                    ok(t("reg.bak_ok", path=path))
                 else:
-                    err("Backup failed (reg.exe returned non-zero).")
+                    err(t("reg.bak_fail"))
             except Exception as e:
                 err(str(e))
             pause()
@@ -626,23 +694,23 @@ def menu_registry(logger: CleanerLogger):
 
 def menu_optimizer(logger: CleanerLogger):
     while True:
-        header("Optimizer")
-        print(f"  {C}[1]{RST} Optimize RAM")
-        print(f"  {C}[2]{RST} Show optimizable services")
-        print(f"  {C}[3]{RST} Disable a service")
-        print(f"  {C}[4]{RST} Enable a service")
-        print(f"  {C}[5]{RST} Show power plans")
-        print(f"  {C}[6]{RST} Switch power plan")
-        print(f"  {C}[0]{RST} Back")
+        header(t("hdr.optimizer"))
+        print(f"  {C}[1]{RST} {t('opt.ram')}")
+        print(f"  {C}[2]{RST} {t('opt.services')}")
+        print(f"  {C}[3]{RST} {t('opt.dis_svc')}")
+        print(f"  {C}[4]{RST} {t('opt.en_svc')}")
+        print(f"  {C}[5]{RST} {t('opt.plans')}")
+        print(f"  {C}[6]{RST} {t('opt.switch_plan')}")
+        print(f"  {C}[0]{RST} {t('menu.back')}")
         sep()
         c = prompt()
         if c == "0": break
         elif c == "1":
-            info("Optimizing RAM...")
+            info(t("opt.opt_ram"))
             try:
                 from core.optimizer import optimize_ram
                 result = optimize_ram(logger)
-                ok(f"Freed: {fmt_bytes(result.get('freed',0))}")
+                ok(t("opt.ram_freed", size=fmt_bytes(result.get('freed',0))))
             except Exception as e:
                 err(str(e))
             pause()
@@ -657,18 +725,18 @@ def menu_optimizer(logger: CleanerLogger):
                     sc = G if s["status"]=="running" else R
                     ic = G if s["impact"]=="low" else Y if s["impact"]=="medium" else R
                     print(f"  {i+1:>3}  {s['display_name'][:35]:<35}  {sc}{s['status']:<10}{RST}  {ic}{s['impact']:<8}{RST}  {s.get('category','')}")
-                ok(f"Found {len(svcs)} services")
+                ok(t("opt.svc_found", count=len(svcs)))
             except Exception as e:
                 err(str(e))
             pause()
         elif c in ("3","4"):
             action = "disable" if c=="3" else "enable"
-            name = prompt(f"Service name to {action}: ")
+            name = prompt(t("opt.svc_ask", action=action))
             if name:
                 try:
                     from core.optimizer import disable_service, enable_service
                     fn = disable_service if c=="3" else enable_service
-                    ok(f"Service {action}d.") if fn(name, logger) else err("Failed.")
+                    ok(t("opt.svc_ok", action=action)) if fn(name, logger) else err(t("opt.svc_fail"))
                 except Exception as e:
                     err(str(e))
             pause()
@@ -684,7 +752,7 @@ def menu_optimizer(logger: CleanerLogger):
                 err(str(e))
             pause()
         elif c == "6":
-            plan_name = prompt("Plan name (Balanced / High performance / Power saver): ")
+            plan_name = prompt(t("opt.plan_ask"))
             if plan_name:
                 try:
                     from core.optimizer import get_power_plans, set_power_plan
@@ -694,9 +762,9 @@ def menu_optimizer(logger: CleanerLogger):
                         None,
                     )
                     if match:
-                        ok("Switched.") if set_power_plan(match["guid"], logger) else err("Failed.")
+                        ok(t("opt.plan_ok")) if set_power_plan(match["guid"], logger) else err(t("opt.plan_fail"))
                     else:
-                        err(f"Plan not found: '{plan_name}'. Use [5] to list available plans.")
+                        err(t("opt.plan_miss", name=plan_name))
                 except Exception as e:
                     err(str(e))
             pause()
@@ -706,12 +774,12 @@ def menu_optimizer(logger: CleanerLogger):
 
 def menu_privacy(logger: CleanerLogger):
     while True:
-        header("Privacy & Security")
-        print(f"  {C}[1]{RST} Scan telemetry settings")
-        print(f"  {C}[2]{RST} Toggle telemetry")
-        print(f"  {C}[3]{RST} Scan tracking files")
-        print(f"  {C}[4]{RST} Clean tracking files")
-        print(f"  {C}[0]{RST} Back")
+        header(t("hdr.privacy"))
+        print(f"  {C}[1]{RST} {t('priv.telemetry')}")
+        print(f"  {C}[2]{RST} {t('priv.toggle_tel')}")
+        print(f"  {C}[3]{RST} {t('priv.scan_track')}")
+        print(f"  {C}[4]{RST} {t('priv.clean_track')}")
+        print(f"  {C}[0]{RST} {t('menu.back')}")
         sep()
         c = prompt()
         if c == "0": break
@@ -729,13 +797,13 @@ def menu_privacy(logger: CleanerLogger):
                 err(str(e))
             pause()
         elif c == "2":
-            warn("Toggle telemetry settings?")
-            if prompt("Type YES: ").upper() == "YES":
+            warn(t("priv.tog_conf"))
+            if prompt(t("prompt.type_yes")).upper() in ("YES", "ANO"):
                 try:
                     from core.privacy import disable_all_telemetry
                     results = disable_all_telemetry(logger)
                     success_count = sum(1 for v in results.values() if v)
-                    ok(f"Disabled {success_count}/{len(results)} telemetry settings.")
+                    ok(t("priv.dis_count", count=success_count, total=len(results)))
                     for name, success in results.items():
                         sym = f"{G}OK{RST}" if success else f"{R}FAIL{RST}"
                         print(f"    [{sym}] {name}")
@@ -753,12 +821,12 @@ def menu_privacy(logger: CleanerLogger):
                 err(str(e))
             pause()
         elif c == "4":
-            warn("Delete all tracking files?")
-            if prompt("Type YES: ").upper() == "YES":
+            warn(t("priv.clean_conf"))
+            if prompt(t("prompt.type_yes")).upper() in ("YES", "ANO"):
                 try:
                     from core.privacy import clean_tracking_files
                     freed = clean_tracking_files(logger)
-                    ok(f"Freed: {fmt_bytes(freed)}")
+                    ok(t("priv.freed", size=fmt_bytes(freed)))
                 except Exception as e:
                     err(str(e))
             pause()
@@ -773,7 +841,7 @@ def menu_tracer(logger: CleanerLogger):
     current_session = None
 
     while True:
-        header("App Tracer")
+        header(t("hdr.tracer"))
         sessions = TracerSession.load_sessions(str(profile_path))
         if current_session and current_session.is_running:
             print(f"  {G}[LIVE]{RST} Tracing {B}'{current_session.app_name}'{RST}  "
@@ -782,14 +850,14 @@ def menu_tracer(logger: CleanerLogger):
                   f"Modified:{Y}{len(current_session.modified_files)}{RST}  "
                   f"Deleted:{R}{len(current_session.deleted_files)}{RST}")
         sep()
-        print(f"  {C}[1]{RST} Start tracing  (live feed until Enter)")
-        print(f"  {C}[2]{RST} Stop active session")
-        print(f"  {C}[3]{RST} List saved sessions")
-        print(f"  {C}[4]{RST} View files in a session")
-        print(f"  {C}[5]{RST} Clean files in a session")
-        print(f"  {C}[6]{RST} Delete a session")
-        print(f"  {C}[7]{RST} Deep app trace analysis")
-        print(f"  {C}[0]{RST} Back")
+        print(f"  {C}[1]{RST} {t('tracer.start')}")
+        print(f"  {C}[2]{RST} {t('tracer.stop_ses')}")
+        print(f"  {C}[3]{RST} {t('tracer.list')}")
+        print(f"  {C}[4]{RST} {t('tracer.view')}")
+        print(f"  {C}[5]{RST} {t('tracer.clean')}")
+        print(f"  {C}[6]{RST} {t('tracer.delete')}")
+        print(f"  {C}[7]{RST} {t('tracer.deep')}")
+        print(f"  {C}[0]{RST} {t('menu.back')}")
         sep()
         c = prompt()
 
@@ -800,45 +868,39 @@ def menu_tracer(logger: CleanerLogger):
 
         elif c == "1":
             if current_session and current_session.is_running:
-                warn("Already tracing. Stop first [2].")
+                warn(t("tracer.active"))
                 pause()
                 continue
 
             clr()
             sep()
-            print(f"  {C}{B}App Tracer — setup{RST}")
-            sep()
-            print(f"  {DIM}Label  — session name (e.g. 'installer', 'myapp').{RST}")
-            print(f"  {DIM}Watch  — folder to monitor for file changes (recursive).{RST}")
-            print(f"  {DIM}Target — process exe name for DLL injection monitoring{RST}")
-            print(f"  {DIM}         (e.g. 'game.exe'). Leave blank to skip.{RST}")
+            print(f"  {C}{B}{t('hdr.tracer_setup')}{RST}")
             sep()
 
-            app_name = prompt("Label session: ").strip()
+            app_name = prompt(t("tracer.label_ask")).strip()
             if not app_name:
                 continue
 
             default_path = os.path.expanduser("~")
-            watch_path = prompt(f"Watch path [{default_path}]: ").strip() or default_path
+            watch_path = prompt(t("tracer.watch_ask", path=default_path)).strip() or default_path
             if not os.path.isdir(watch_path):
-                err(f"Složka neexistuje: {watch_path}")
+                err(f"Directory not found: {watch_path}")
                 pause()
                 continue
 
-            target_proc = prompt("Target process (e.g. game.exe) [Enter = skip]: ").strip() or None
+            target_proc = prompt(t("tracer.target_ask")).strip() or None
 
             current_session = TracerSession(app_name, str(profile_path), logger)
             current_session.start(watch_path=watch_path, target_process=target_proc)
 
-            # ── live feed ────────────────────────────────────
             clr()
             sep("═")
-            print(f"  {G}{B}LIVE TRACE{RST}  {B}{app_name}{RST}")
+            print(f"  {G}{B}{t('tracer.live')}{RST}  {B}{app_name}{RST}")
             print(f"  watch : {watch_path}")
             if target_proc:
                 print(f"  target: {Y}{target_proc}{RST}  (DLL injection monitoring ON)")
             sep("═")
-            print(f"  {DIM}Legend:{RST}  "
+            print(f"  {DIM}{t('tracer.legend')}{RST}  "
                   f"{G}FILE+{RST}=create  {Y}FILE~{RST}=modify  {R}FILE-{RST}=delete  "
                   f"{C}MOVE {RST}  "
                   f"{G}PROC+{RST}=new proc  {R}PROC-{RST}=killed  "
@@ -876,7 +938,6 @@ def menu_tracer(logger: CleanerLogger):
                     event = current_session.event_queue.get(timeout=0.2)
                     col = TYPE_COLOR.get(event["type"], W)
                     etype = event["type"]
-                    # DLL injection — zvýrazni celý řádek
                     if etype == "DLL  ":
                         print(f"  {DIM}{event['time']}{RST}  {R}{B}{etype}{RST}  {R}{event['path']}{RST}")
                     else:
@@ -886,7 +947,7 @@ def menu_tracer(logger: CleanerLogger):
 
             current_session.stop()
             sep("═")
-            ok(f"Saved  |  "
+            ok(f"{t('tracer.saved')}  |  "
                f"files: {G}+{len(current_session.created_files)} ~{len(current_session.modified_files)} -{len(current_session.deleted_files)}{RST}  "
                f"procs: {G}+{len(current_session.new_processes)}{RST}  "
                f"DLLs: {R}{len(current_session.injected_dlls)}{RST}  "
@@ -897,16 +958,16 @@ def menu_tracer(logger: CleanerLogger):
         elif c == "2":
             if current_session and current_session.is_running:
                 current_session.stop()
-                ok(f"Stopped '{current_session.app_name}'.")
+                ok(t("tracer.stopped", name=current_session.app_name))
                 current_session = None
             else:
-                warn("No active session.")
+                warn(t("tracer.no_active"))
             pause()
 
         elif c == "3":
             sep()
             if not sessions:
-                warn("No sessions found.")
+                warn(t("tracer.no_ses"))
             else:
                 print(f"  {'Session ID':<20}  {'Label':<18}  {'Target':<15}  F+  F~  F-  Pr  DL  Net")
                 sep("-")
@@ -923,11 +984,11 @@ def menu_tracer(logger: CleanerLogger):
             pause()
 
         elif c == "4":
-            sid = prompt("Session ID: ")
+            sid = prompt(t("tracer.sid_ask"))
             session = next((s for s in sessions if s.get("session_id") == sid), None)
             if session:
                 sep()
-                # DLL injection — nejdůležitější, ukaž první
+                # Show DLL injections first — highest severity
                 dlls = session.get("injected_dlls", [])
                 if dlls:
                     print(f"\n  {R}{B}DLL INJECTION ({len(dlls)}){RST}")
@@ -959,16 +1020,16 @@ def menu_tracer(logger: CleanerLogger):
                         if len(files) > 30:
                             print(f"    {DIM}... and {len(files)-30} more{RST}")
             else:
-                err("Session nenalezena.")
+                err(t("tracer.not_found"))
             pause()
 
         elif c == "5":
-            sid = prompt("Session ID: ")
+            sid = prompt(t("tracer.sid_ask"))
             session = next((s for s in sessions if s.get("session_id") == sid), None)
             if session:
                 files = session.get("created_files", [])
-                warn(f"Delete {len(files)} created files from session '{sid}'?")
-                if prompt("Type YES: ").upper() == "YES":
+                warn(t("tracer.cln_conf", count=len(files), sid=sid))
+                if prompt(t("prompt.type_yes")).upper() in ("YES", "ANO"):
                     try:
                         from core.uninstaller import remove_traced_files
                         freed = remove_traced_files(files, logger)
@@ -976,25 +1037,25 @@ def menu_tracer(logger: CleanerLogger):
                     except Exception as e:
                         err(str(e))
             else:
-                err("Session not found.")
+                err(t("tracer.not_found"))
             pause()
 
         elif c == "6":
-            sid = prompt("Session ID: ")
+            sid = prompt(t("tracer.sid_ask"))
             f = profile_path / f"trace_{sid}.json"
             if f.exists():
-                warn(f"Delete session '{sid}'?")
-                if prompt("Type YES: ").upper() == "YES":
+                warn(t("tracer.del_conf", sid=sid))
+                if prompt(t("prompt.type_yes")).upper() in ("YES", "ANO"):
                     f.unlink()
-                    ok("Deleted.")
+                    ok(t("tracer.deleted"))
             else:
-                err("Session not found.")
+                err(t("tracer.not_found"))
             pause()
 
         elif c == "7":
-            app_name = prompt("App name to analyze: ")
+            app_name = prompt(t("tracer.app_ask"))
             if app_name:
-                info(f"Analyzing traces for '{app_name}'...")
+                info(t("tracer.analyzing", name=app_name))
                 try:
                     from core.tracer import AppTracer
                     tracer = AppTracer(app_name, logger=logger)
@@ -1633,6 +1694,823 @@ def menu_health(logger: CleanerLogger):
         print(f"    {C}•{RST} {rec}")
 
     sep("═")
+    pause()
+
+
+# ── FILE TOOLS ──────────────────────────────────────────────
+
+def menu_duplicates(logger: CleanerLogger):
+    while True:
+        header(t("menu.duplicates"))
+        print(f"  {C}[1]{RST} Scan a folder for duplicate files")
+        print(f"  {C}[0]{RST} {t('menu.back')}")
+        sep()
+        c = prompt()
+        if c == "0":
+            break
+        elif c == "1":
+            default = os.path.expanduser("~")
+            root = prompt(f"Folder to scan [{default}]: ").strip() or default
+            if not os.path.isdir(root):
+                err(f"Not a directory: {root}")
+                pause()
+                continue
+            threshold_raw = prompt("Min file size to consider in KB [4]: ").strip()
+            try:
+                min_kb = int(threshold_raw) if threshold_raw else 4
+            except ValueError:
+                min_kb = 4
+            info(f"Scanning '{root}' for duplicates (min {min_kb} KB)…")
+            try:
+                from core.duplicates import find_duplicates, delete_files
+                groups = find_duplicates(root, min_size=min_kb * 1024, logger=logger)
+            except Exception as e:
+                err(str(e)); pause(); continue
+
+            if not groups:
+                ok("No duplicates found.")
+                pause()
+                continue
+
+            total_wasted = sum(g[0]["size"] * (len(g) - 1) for g in groups)
+            sep()
+            ok(f"Found {len(groups)} duplicate groups — {fmt_bytes(total_wasted)} wasted")
+            sep("-")
+
+            # Build a flat numbered list of deletable copies (keep first = newest)
+            deletable: list[dict] = []
+            for g in groups[:30]:
+                g_sorted = sorted(g, key=lambda x: x["modified"], reverse=True)
+                keeper = g_sorted[0]
+                print(f"\n  {G}KEEP{RST}  {keeper['path'][:70]}  ({fmt_bytes(keeper['size'])})")
+                for dup in g_sorted[1:]:
+                    idx = len(deletable) + 1
+                    print(f"  {R}[{idx:>3}]{RST}  {dup['path'][:70]}")
+                    deletable.append(dup)
+            if len(groups) > 30:
+                print(f"  {DIM}… {len(groups)-30} more groups not shown{RST}")
+
+            sep()
+            print(f"  {C}[d #]{RST} Delete by number(s)   {C}[all]{RST} Delete ALL copies   {C}[0]{RST} Back")
+            sep()
+            cmd = prompt()
+            if cmd == "0":
+                continue
+            if cmd.lower() == "all":
+                warn(f"Delete ALL {len(deletable)} duplicate copies?")
+                if prompt(t("prompt.type_yes")).upper() in ("YES", "ANO"):
+                    freed = delete_files([d["path"] for d in deletable], logger)
+                    ok(f"Freed {fmt_bytes(freed)}")
+            else:
+                parts = cmd.split(None, 1)
+                if parts and parts[0] == "d" and len(parts) > 1:
+                    try:
+                        nums = [int(x) - 1 for x in parts[1].split()]
+                        to_del = [deletable[n]["path"] for n in nums if 0 <= n < len(deletable)]
+                        freed = delete_files(to_del, logger)
+                        ok(f"Deleted {len(to_del)} file(s) — freed {fmt_bytes(freed)}")
+                    except (ValueError, IndexError):
+                        err("Invalid number.")
+            pause()
+
+
+def menu_large_files(logger: CleanerLogger):
+    while True:
+        header(t("menu.large_files"))
+        print(f"  {C}[1]{RST} Scan a folder for large files")
+        print(f"  {C}[0]{RST} {t('menu.back')}")
+        sep()
+        c = prompt()
+        if c == "0":
+            break
+        elif c == "1":
+            default = "C:\\" if os.name == "nt" else os.path.expanduser("~")
+            root = prompt(f"Folder to scan [{default}]: ").strip() or default
+            if not os.path.isdir(root):
+                err(f"Not a directory: {root}")
+                pause()
+                continue
+            threshold_raw = prompt("Minimum size in MB [100]: ").strip()
+            try:
+                min_mb = int(threshold_raw) if threshold_raw else 100
+            except ValueError:
+                min_mb = 100
+            info(f"Scanning '{root}' for files ≥ {min_mb} MB…")
+            try:
+                from core.largefile import find_large_files, delete_file as lf_delete
+                files = find_large_files(root, min_bytes=min_mb * 1024 * 1024, logger=logger)
+            except Exception as e:
+                err(str(e)); pause(); continue
+
+            if not files:
+                ok(f"No files ≥ {min_mb} MB found.")
+                pause()
+                continue
+
+            sep()
+            print(f"  {'#':>4}  {'Size':>10}  Path")
+            sep("-")
+            for i, f in enumerate(files[:60]):
+                print(f"  {i+1:>4}  {fmt_bytes(f['size']):>10}  {f['path'][:70]}")
+            if len(files) > 60:
+                print(f"  {DIM}… {len(files)-60} more{RST}")
+            sep()
+            print(f"  {C}[d #]{RST} Delete by number(s)   {C}[0]{RST} Back")
+            sep()
+            cmd = prompt()
+            if cmd == "0":
+                continue
+            parts = cmd.split(None, 1)
+            if parts and parts[0] == "d" and len(parts) > 1:
+                try:
+                    nums = [int(x) - 1 for x in parts[1].split()]
+                    freed = 0
+                    deleted = 0
+                    for n in nums:
+                        if 0 <= n < len(files):
+                            sz = files[n]["size"]
+                            warn(f"Delete '{files[n]['path']}'?")
+                            if prompt(t("prompt.type_yes")).upper() in ("YES", "ANO"):
+                                if lf_delete(files[n]["path"], logger):
+                                    freed += sz
+                                    deleted += 1
+                    ok(f"Deleted {deleted} file(s) — freed {fmt_bytes(freed)}")
+                except (ValueError, IndexError):
+                    err("Invalid number.")
+            pause()
+
+
+def menu_empty_folders(logger: CleanerLogger):
+    while True:
+        header(t("menu.empty_folders"))
+        print(f"  {C}[1]{RST} Scan a folder for empty subdirectories")
+        print(f"  {C}[0]{RST} {t('menu.back')}")
+        sep()
+        c = prompt()
+        if c == "0":
+            break
+        elif c == "1":
+            default = os.path.expanduser("~")
+            root = prompt(f"Folder to scan [{default}]: ").strip() or default
+            if not os.path.isdir(root):
+                err(f"Not a directory: {root}")
+                pause()
+                continue
+            info(f"Scanning '{root}' for empty folders…")
+            try:
+                from core.emptyfolders import find_empty_folders, delete_folders
+                empties = find_empty_folders(root, logger=logger)
+            except Exception as e:
+                err(str(e)); pause(); continue
+
+            if not empties:
+                ok("No empty folders found.")
+                pause()
+                continue
+
+            sep()
+            ok(f"Found {len(empties)} empty folder(s)")
+            sep("-")
+            for i, p in enumerate(empties[:50]):
+                print(f"  {i+1:>4}  {p}")
+            if len(empties) > 50:
+                print(f"  {DIM}… {len(empties)-50} more{RST}")
+            sep()
+            print(f"  {C}[d #]{RST} Delete by number(s)   {C}[all]{RST} Delete ALL   {C}[0]{RST} Back")
+            sep()
+            cmd = prompt()
+            if cmd == "0":
+                continue
+            if cmd.lower() == "all":
+                warn(f"Delete all {len(empties)} empty folder(s)?")
+                if prompt(t("prompt.type_yes")).upper() in ("YES", "ANO"):
+                    n = delete_folders(empties, logger)
+                    ok(f"Deleted {n} folder(s).")
+            else:
+                parts = cmd.split(None, 1)
+                if parts and parts[0] == "d" and len(parts) > 1:
+                    try:
+                        nums = [int(x) - 1 for x in parts[1].split()]
+                        sel = [empties[n] for n in nums if 0 <= n < len(empties)]
+                        count = delete_folders(sel, logger)
+                        ok(f"Deleted {count} folder(s).")
+                    except (ValueError, IndexError):
+                        err("Invalid number.")
+            pause()
+
+
+def menu_secure_wipe(logger: CleanerLogger):
+    header(t("menu.secure_wipe"))
+    print(f"  Overwrite file content before deletion so it cannot be recovered.")
+    print(f"  {Y}Passes:{RST}  1 = zeros only   3 = DoD (zeros/ones/random)   7 = extra thorough")
+    sep()
+    target = prompt("File or folder to wipe: ").strip()
+    if not target:
+        return
+    if not os.path.exists(target):
+        err(f"Not found: {target}")
+        pause()
+        return
+    passes_raw = prompt("Overwrite passes [3]: ").strip()
+    try:
+        passes = int(passes_raw) if passes_raw else 3
+        passes = max(1, min(passes, 35))
+    except ValueError:
+        passes = 3
+    scope = "folder" if os.path.isdir(target) else "file"
+    warn(f"Securely wipe {scope} '{target}' with {passes} pass(es)? This CANNOT be undone.")
+    if prompt(t("prompt.type_yes")).upper() not in ("YES", "ANO"):
+        info("Cancelled.")
+        pause()
+        return
+    info(f"Wiping… ({passes} pass{'es' if passes > 1 else ''})")
+    try:
+        from core.securewipe import secure_wipe, secure_wipe_dir
+        if os.path.isdir(target):
+            wiped, freed = secure_wipe_dir(target, passes=passes, logger=logger)
+            ok(f"Wiped {wiped} file(s) — {fmt_bytes(freed)} overwritten and deleted.")
+        else:
+            if secure_wipe(target, passes=passes, logger=logger):
+                ok("File securely wiped.")
+            else:
+                err("Wipe failed — check permissions.")
+    except Exception as e:
+        err(str(e))
+    pause()
+
+
+# ── MONITORING ADDITIONS ─────────────────────────────────────
+
+def menu_crash_logs(logger: CleanerLogger):
+    while True:
+        header(t("menu.crash_logs"))
+        print(f"  {C}[1]{RST} Recent critical/error events  (Event Log)")
+        print(f"  {C}[2]{RST} BSOD history")
+        print(f"  {C}[3]{RST} Minidump files")
+        print(f"  {C}[0]{RST} {t('menu.back')}")
+        sep()
+        c = prompt()
+        if c == "0":
+            break
+
+        elif c == "1":
+            hours_raw = prompt("Look back how many hours? [72]: ").strip()
+            try:
+                hours = int(hours_raw) if hours_raw else 72
+            except ValueError:
+                hours = 72
+            info(f"Reading Event Log (last {hours} h)…")
+            try:
+                from core.crashlog import get_crash_events
+                events = get_crash_events(hours=hours, logger=logger)
+            except Exception as e:
+                err(str(e)); pause(); continue
+
+            sep()
+            if not events:
+                ok("No critical/error events found in this window.")
+            else:
+                print(f"  {'Time':<20}  {'Lvl':<8}  {'Source':<30}  {'ID':>5}  Message")
+                sep("-")
+                for ev in events:
+                    lv_col = R if ev["level"] in ("Critical", "Error") else Y
+                    print(f"  {ev['time']:<20}  {lv_col}{ev['level'][:8]:<8}{RST}  "
+                          f"{ev['source'][:30]:<30}  {ev['id']:>5}  {ev['message'][:60]}")
+                ok(f"{len(events)} event(s) found.")
+            pause()
+
+        elif c == "2":
+            info("Reading BSOD (BugCheck) history…")
+            try:
+                from core.crashlog import get_bsod_summary
+                bsods = get_bsod_summary(logger=logger)
+            except Exception as e:
+                err(str(e)); pause(); continue
+
+            sep()
+            if not bsods:
+                ok("No BSOD events found.")
+            else:
+                for b in bsods:
+                    print(f"  {R}{b['time']}{RST}  {b['message'][:100]}")
+            pause()
+
+        elif c == "3":
+            try:
+                from core.crashlog import get_minidumps
+                dumps = get_minidumps(logger=logger)
+            except Exception as e:
+                err(str(e)); pause(); continue
+
+            sep()
+            if not dumps:
+                ok("No minidump files found (C:\\Windows\\Minidump).")
+            else:
+                print(f"  {'Name':<30}  {'Size':>10}  Modified")
+                sep("-")
+                for d in dumps:
+                    print(f"  {d['name']:<30}  {fmt_bytes(d['size']):>10}  {d['modified']}")
+                ok(f"{len(dumps)} minidump(s)")
+            pause()
+
+
+# ── TOOLS ADDITIONS ──────────────────────────────────────────
+
+def menu_autoruns(logger: CleanerLogger):
+    while True:
+        header(t("menu.autoruns"))
+        print(f"  {C}[1]{RST} View all autorun entries")
+        print(f"  {C}[2]{RST} View scheduled tasks")
+        print(f"  {C}[3]{RST} View shell extensions")
+        print(f"  {C}[0]{RST} {t('menu.back')}")
+        sep()
+        c = prompt()
+        if c == "0":
+            break
+
+        elif c == "1":
+            info("Loading autorun entries…")
+            try:
+                from core.autoruns import get_autoruns, disable_run_entry
+                data = get_autoruns(logger=logger)
+            except Exception as e:
+                err(str(e)); pause(); continue
+
+            run_entries: list[dict] = data.get("Run Keys", []) + data.get("Winlogon", [])
+            sep()
+            if not run_entries:
+                warn("No Run key / Winlogon entries found.")
+            else:
+                print(f"  {'#':>4}  {'Source':<18}  {'Name':<30}  Command")
+                sep("-")
+                for i, e in enumerate(run_entries):
+                    print(f"  {i+1:>4}  {e.get('source','')[:18]:<18}  "
+                          f"{e.get('name','')[:30]:<30}  {e.get('command','')[:50]}")
+                sep()
+                print(f"  {C}[d #]{RST} Delete entry (disable on startup)   {C}[Enter]{RST} Back")
+                sep()
+                cmd = prompt()
+                parts = cmd.split(None, 1)
+                if parts and parts[0] == "d" and len(parts) > 1:
+                    try:
+                        idx = int(parts[1]) - 1
+                        entry = run_entries[idx]
+                        warn(f"Remove '{entry['name']}' from startup?")
+                        if prompt(t("prompt.type_yes")).upper() in ("YES", "ANO"):
+                            if disable_run_entry(entry, logger):
+                                ok("Removed.")
+                            else:
+                                err("Failed — admin rights may be required.")
+                    except (ValueError, IndexError):
+                        err("Invalid number.")
+            pause()
+
+        elif c == "2":
+            info("Loading scheduled tasks…")
+            try:
+                from core.autoruns import get_autoruns, disable_scheduled_task, enable_scheduled_task
+                data = get_autoruns(logger=logger)
+                tasks = data.get("Scheduled Tasks", [])
+            except Exception as e:
+                err(str(e)); pause(); continue
+
+            sep()
+            if not tasks:
+                warn("No scheduled tasks found.")
+                pause()
+                continue
+
+            while True:
+                enabled_t  = [t2 for t2 in tasks if t2.get("enabled")]
+                disabled_t = [t2 for t2 in tasks if not t2.get("enabled")]
+                print(f"  {'#':>4}  {'Status':<10}  {'Name':<40}  Command")
+                sep("-")
+                for i, t2 in enumerate(tasks[:50]):
+                    st_col = G if t2.get("enabled") else DIM
+                    st_lbl = "Active" if t2.get("enabled") else "Disabled"
+                    print(f"  {i+1:>4}  {st_col}{st_lbl:<10}{RST}  "
+                          f"{t2.get('name','')[:40]:<40}  {t2.get('command','')[:40]}")
+                sep()
+                print(f"  {C}[tog #]{RST} Toggle enable/disable   {C}[0]{RST} Back")
+                sep()
+                cmd = prompt()
+                if cmd == "0":
+                    break
+                parts = cmd.split(None, 1)
+                if parts and parts[0] == "tog" and len(parts) > 1:
+                    try:
+                        idx = int(parts[1]) - 1
+                        task = tasks[idx]
+                        if task.get("enabled"):
+                            disable_scheduled_task(task, logger)
+                            task["enabled"] = False
+                            ok(f"Disabled '{task['name']}'.")
+                        else:
+                            enable_scheduled_task(task, logger)
+                            task["enabled"] = True
+                            ok(f"Enabled '{task['name']}'.")
+                    except (ValueError, IndexError):
+                        err("Invalid number.")
+
+        elif c == "3":
+            info("Loading shell extensions…")
+            try:
+                from core.autoruns import get_autoruns
+                data = get_autoruns(logger=logger)
+                exts = data.get("Shell Extensions", [])
+            except Exception as e:
+                err(str(e)); pause(); continue
+
+            sep()
+            if not exts:
+                warn("No approved shell extensions found.")
+            else:
+                print(f"  {'Name':<50}  CLSID")
+                sep("-")
+                for e in exts[:50]:
+                    print(f"  {e.get('name','')[:50]:<50}  {e.get('command','')}")
+                if len(exts) > 50:
+                    print(f"  {DIM}… {len(exts)-50} more{RST}")
+            pause()
+
+
+def menu_context_menu(logger: CleanerLogger):
+    while True:
+        header(t("menu.context_menu"))
+        info("Loading context menu entries…")
+        try:
+            from core.contextmenu import get_context_menu_entries, disable_entry, enable_entry, delete_entry
+            entries = get_context_menu_entries(logger=logger)
+        except Exception as e:
+            err(str(e)); pause(); return
+
+        if not entries:
+            warn("No context menu entries found.")
+            pause()
+            return
+
+        sep()
+        print(f"  {'#':>4}  {'Status':<9}  {'Location':<22}  {'Name':<28}  Command")
+        sep("-")
+        for i, e in enumerate(entries[:60]):
+            st_col = G if e.get("enabled") else DIM
+            st_lbl = "Enabled" if e.get("enabled") else "Disabled"
+            print(f"  {i+1:>4}  {st_col}{st_lbl:<9}{RST}  "
+                  f"{e.get('location','')[:22]:<22}  "
+                  f"{e.get('name','')[:28]:<28}  "
+                  f"{e.get('command','')[:40]}")
+        if len(entries) > 60:
+            print(f"  {DIM}… {len(entries)-60} more entries{RST}")
+        sep()
+        print(f"  {C}[tog #]{RST} Toggle   {C}[del #]{RST} Delete permanently   {C}[0]{RST} {t('menu.back')}")
+        sep()
+        cmd = prompt()
+        if cmd == "0":
+            break
+        parts = cmd.split(None, 1)
+        if not parts or len(parts) < 2:
+            continue
+        action, rest = parts[0], parts[1]
+        try:
+            idx = int(rest) - 1
+            entry = entries[idx]
+        except (ValueError, IndexError):
+            err("Invalid number.")
+            continue
+        if action == "tog":
+            if entry.get("enabled"):
+                ok("Disabled.") if disable_entry(entry, logger) else err("Failed — try running as admin.")
+            else:
+                ok("Enabled.") if enable_entry(entry, logger) else err("Failed — try running as admin.")
+        elif action == "del":
+            warn(f"Permanently delete '{entry['name']}' from context menu?")
+            if prompt(t("prompt.type_yes")).upper() in ("YES", "ANO"):
+                ok("Deleted.") if delete_entry(entry, logger) else err("Failed.")
+
+
+# ── SYSTEM ADDITIONS ─────────────────────────────────────────
+
+def menu_restore_points(logger: CleanerLogger):
+    while True:
+        header(t("menu.restore_points"))
+        print(f"  {C}[1]{RST} List restore points")
+        print(f"  {C}[2]{RST} Create a restore point")
+        print(f"  {C}[3]{RST} Delete a restore point")
+        print(f"  {C}[4]{RST} Delete ALL restore points  {R}(frees disk space){RST}")
+        print(f"  {C}[0]{RST} {t('menu.back')}")
+        sep()
+        c = prompt()
+        if c == "0":
+            break
+
+        elif c == "1":
+            info("Loading restore points…")
+            try:
+                from core.restore import list_restore_points
+                points = list_restore_points(logger=logger)
+            except Exception as e:
+                err(str(e)); pause(); continue
+            sep()
+            if not points:
+                warn("No restore points found (or System Restore is disabled).")
+            else:
+                print(f"  {'Seq':>5}  {'Created':<18}  {'Type':<6}  Description")
+                sep("-")
+                for p in points:
+                    print(f"  {p['seq']:>5}  {p['created']:<18}  {p['type'][:6]:<6}  {p['description']}")
+            pause()
+
+        elif c == "2":
+            desc = prompt("Description [System Cleaner checkpoint]: ").strip() or "System Cleaner checkpoint"
+            info("Creating restore point — this may take a moment…")
+            try:
+                from core.restore import create_restore_point
+                if create_restore_point(desc, logger):
+                    ok("Restore point created.")
+                else:
+                    err("Failed — ensure System Restore is enabled and run as admin.")
+            except Exception as e:
+                err(str(e))
+            pause()
+
+        elif c == "3":
+            info("Loading restore points…")
+            try:
+                from core.restore import list_restore_points, delete_restore_point
+                points = list_restore_points(logger=logger)
+            except Exception as e:
+                err(str(e)); pause(); continue
+            sep()
+            if not points:
+                warn("No restore points found.")
+                pause()
+                continue
+            for p in points:
+                print(f"  {C}[{p['seq']}]{RST}  {p['created']}  {p['description']}")
+            sep()
+            seq_raw = prompt("Sequence number to delete: ").strip()
+            try:
+                seq = int(seq_raw)
+                pt = next((p for p in points if p["seq"] == seq), None)
+                if not pt:
+                    err("Sequence number not found.")
+                else:
+                    warn(f"Delete restore point {seq} '{pt['description']}'?")
+                    if prompt(t("prompt.type_yes")).upper() in ("YES", "ANO"):
+                        from core.restore import delete_restore_point
+                        ok("Deleted.") if delete_restore_point(seq, logger) else err("Failed.")
+            except ValueError:
+                err("Invalid number.")
+            pause()
+
+        elif c == "4":
+            warn("Delete ALL restore points for C:\\ — this CANNOT be undone.")
+            if prompt(t("prompt.type_yes")).upper() in ("YES", "ANO"):
+                try:
+                    from core.restore import delete_all_restore_points
+                    ok("All restore points cleared.") if delete_all_restore_points(logger) else err("Failed.")
+                except Exception as e:
+                    err(str(e))
+            pause()
+
+
+# ── 20. HISTORY MANAGER ─────────────────────────────────────
+
+def _menu_history_network(logger: CleanerLogger):
+    while True:
+        header(t("hist.net_lbl"))
+        info(t("hist.loading"))
+        try:
+            from core.history import get_network_history, delete_network_profile, clear_all_network_history
+            profiles = get_network_history(logger)
+        except Exception as e:
+            err(str(e)); pause(); return
+
+        sep()
+        info(t("hist.net_note"))
+        sep()
+        if not profiles:
+            warn(t("hist.no_entries"))
+        else:
+            print(f"  {'#':>4}  {'Name':<30}  {'Type':<8}  {t('hist.created'):<20}  {t('hist.last_conn')}")
+            sep("-")
+            for i, p in enumerate(profiles):
+                ctype = p.get("conn_type", "")
+                print(f"  {i+1:>4}  {p.get('name','')[:30]:<30}  {ctype:<8}  {p.get('date_created','')[:20]:<20}  {p.get('date_last_conn','')}")
+        sep()
+        print(f"  {C}[d #]{RST} Delete entry   {C}[all]{RST} Clear all   {C}[0]{RST} {t('menu.back')}")
+        sep()
+        cmd = prompt()
+        if cmd == "0":
+            break
+        if cmd.lower() == "all":
+            warn(t("hist.del_all"))
+            if prompt(t("prompt.type_yes")).upper() in ("YES", "ANO"):
+                try:
+                    count = clear_all_network_history(logger)
+                    ok(t("hist.all_del", count=count))
+                except Exception as e:
+                    err(str(e))
+            pause()
+            continue
+        parts = cmd.split(None, 1)
+        if parts and parts[0] == "d" and len(parts) > 1:
+            try:
+                nums = [int(x) - 1 for x in parts[1].split()]
+                deleted = 0
+                for idx in nums:
+                    try:
+                        if delete_network_profile(profiles[idx].get("guid", ""), logger):
+                            deleted += 1
+                    except (IndexError, Exception) as e:
+                        err(t("hist.del_fail", err=str(e)))
+                ok(t("hist.entry_del", count=deleted))
+            except ValueError:
+                err(t("hist.bad_num"))
+            pause()
+
+
+def _menu_history_usb(logger: CleanerLogger):
+    while True:
+        header(t("hist.usb_lbl"))
+        info(t("hist.loading"))
+        try:
+            from core.history import get_usb_history, delete_usb_entry, clear_all_usb_history
+            devices = get_usb_history(logger)
+        except Exception as e:
+            err(str(e)); pause(); return
+
+        sep()
+        info(t("hist.usb_note"))
+        sep()
+        if not devices:
+            warn(t("hist.no_entries"))
+        else:
+            print(f"  {'#':>4}  {'Friendly Name':<35}  {t('hist.vendor'):<20}  {t('hist.model'):<20}  {t('hist.serial')}")
+            sep("-")
+            for i, d in enumerate(devices):
+                print(f"  {i+1:>4}  {d.get('friendly','')[:35]:<35}  {d.get('vendor','')[:20]:<20}  {d.get('model','')[:20]:<20}  {d.get('serial','')[:20]}")
+        sep()
+        print(f"  {C}[d #]{RST} Delete entry   {C}[all]{RST} Clear all   {C}[0]{RST} {t('menu.back')}")
+        sep()
+        cmd = prompt()
+        if cmd == "0":
+            break
+        if cmd.lower() == "all":
+            warn(t("hist.del_all"))
+            if prompt(t("prompt.type_yes")).upper() in ("YES", "ANO"):
+                try:
+                    count = clear_all_usb_history(logger)
+                    ok(t("hist.all_del", count=count))
+                except Exception as e:
+                    err(str(e))
+            pause()
+            continue
+        parts = cmd.split(None, 1)
+        if parts and parts[0] == "d" and len(parts) > 1:
+            try:
+                nums = [int(x) - 1 for x in parts[1].split()]
+                deleted = 0
+                for idx in nums:
+                    try:
+                        if delete_usb_entry(devices[idx], logger):
+                            deleted += 1
+                    except (IndexError, Exception) as e:
+                        err(t("hist.del_fail", err=str(e)))
+                ok(t("hist.entry_del", count=deleted))
+            except ValueError:
+                err(t("hist.bad_num"))
+            pause()
+
+
+def _menu_history_apps(logger: CleanerLogger):
+    while True:
+        header(t("hist.app_lbl"))
+        info(t("hist.loading"))
+        try:
+            from core.history import get_app_launch_history, delete_app_launch_entry, clear_app_launch_history
+            data = get_app_launch_history(logger)
+        except Exception as e:
+            err(str(e)); pause(); return
+
+        userassist = data.get("userassist", [])
+        recent_docs = data.get("recent_docs", [])
+        run_mru    = data.get("run_mru", [])
+        all_entries = userassist + recent_docs + run_mru
+
+        sep()
+        info(t("hist.app_note"))
+        print(f"  {DIM}{t('hist.app_doc')}: {len(recent_docs)}   {t('hist.app_run')}: {len(run_mru)}{RST}")
+        sep()
+
+        if not all_entries:
+            warn(t("hist.no_entries"))
+        else:
+            print(f"  {'#':>4}  {'Name / Command':<45}  {t('hist.run_count'):>5}  {t('hist.last_run')}")
+            sep("-")
+            for i, e in enumerate(userassist[:50]):
+                runs = e.get("run_count", 0)
+                last = e.get("last_run", t("hist.never"))
+                print(f"  {i+1:>4}  {e.get('name','')[:45]:<45}  {runs:>5}  {last}")
+            base = len(userassist[:50])
+            for i, e in enumerate(recent_docs[:20]):
+                print(f"  {base+i+1:>4}  [doc] {e.get('name','')[:40]:<40}")
+            base += len(recent_docs[:20])
+            for i, e in enumerate(run_mru[:20]):
+                print(f"  {base+i+1:>4}  [run] {e.get('command','')[:40]:<40}")
+
+        sep()
+        print(f"  {C}[d #]{RST} Delete entry   {C}[all]{RST} Clear all   {C}[0]{RST} {t('menu.back')}")
+        sep()
+        cmd = prompt()
+        if cmd == "0":
+            break
+        if cmd.lower() == "all":
+            warn(t("hist.del_all"))
+            if prompt(t("prompt.type_yes")).upper() in ("YES", "ANO"):
+                try:
+                    counts = clear_app_launch_history(logger)
+                    total = sum(counts.values())
+                    ok(t("hist.all_del", count=total))
+                except Exception as e:
+                    err(str(e))
+            pause()
+            continue
+        parts = cmd.split(None, 1)
+        if parts and parts[0] == "d" and len(parts) > 1:
+            display_list = userassist[:50] + recent_docs[:20] + run_mru[:20]
+            try:
+                nums = [int(x) - 1 for x in parts[1].split()]
+                deleted = 0
+                for idx in nums:
+                    try:
+                        if delete_app_launch_entry(display_list[idx], logger):
+                            deleted += 1
+                    except (IndexError, Exception) as e:
+                        err(t("hist.del_fail", err=str(e)))
+                ok(t("hist.entry_del", count=deleted))
+            except ValueError:
+                err(t("hist.bad_num"))
+            pause()
+
+
+def menu_history(logger: CleanerLogger):
+    while True:
+        header(t("menu.history_mgr"))
+        print(f"  {C}[1]{RST} {t('hist.net_lbl')}")
+        print(f"  {C}[2]{RST} {t('hist.usb_lbl')}")
+        print(f"  {C}[3]{RST} {t('hist.app_lbl')}")
+        print(f"  {C}[0]{RST} {t('menu.back')}")
+        sep()
+        c = prompt()
+        if c == "0":
+            break
+        elif c == "1":
+            _menu_history_network(logger)
+        elif c == "2":
+            _menu_history_usb(logger)
+        elif c == "3":
+            _menu_history_apps(logger)
+
+
+# ── 21. LANGUAGE ─────────────────────────────────────────────
+
+def menu_language(logger: CleanerLogger):
+    header(t("menu.language"))
+    langs = available_languages()
+    current_code = get_language()
+
+    for i, lang in enumerate(langs):
+        marker = f"{G}*{RST}" if lang["code"] == current_code else " "
+        print(f"  {marker} {C}[{i+1}]{RST} {lang['name']} — {lang['native_name']}")
+
+    sep()
+    current_lang = next((l for l in langs if l["code"] == current_code), {})
+    info(t("lang.current", lang=current_lang.get("name", current_code), native=current_lang.get("native_name", current_code)))
+    sep()
+    choice = prompt(t("lang.select"))
+
+    try:
+        idx = int(choice) - 1
+        selected = langs[idx]
+    except (ValueError, IndexError):
+        err(t("lang.invalid"))
+        pause()
+        return
+
+    set_language(selected["code"])
+
+    # Persist to config.json
+    cfg_path = Path(__file__).parent / "config.json"
+    try:
+        cfg = json.loads(cfg_path.read_text(encoding="utf-8")) if cfg_path.exists() else {}
+        cfg["language"] = selected["code"]
+        cfg_path.write_text(json.dumps(cfg, indent=2, ensure_ascii=False), encoding="utf-8")
+        ok(t("lang.saved"))
+    except Exception as e:
+        err(str(e))
+
+    ok(t("lang.changed", lang=selected["native_name"]))
     pause()
 
 
