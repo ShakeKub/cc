@@ -3633,7 +3633,8 @@ def menu_wol(logger: CleanerLogger):
 def _menu_spoofer(logger: CleanerLogger):
     from core.gaming import (
         get_mta_serial, set_mta_serial, generate_mta_serial, delete_mta_serial,
-        get_fivem_info, clear_fivem_identity, clear_fivem_full_cache,
+        find_mta_processes, get_fivem_info, clear_fivem_identity, clear_fivem_full_cache,
+        _MTA_APPDATA_ROOT,
     )
     while True:
         header("Spoofer")
@@ -3641,20 +3642,38 @@ def _menu_spoofer(logger: CleanerLogger):
         print(f"  {DIM}Changes local identifiers used by MTA and FiveM.{RST}")
         print(f"  {DIM}Close both games before spoofing.{RST}")
         sep()
+
+        # ── MTA process status ──
+        mta_procs = find_mta_processes()
         print(f"  {B}MTA San Andreas{RST}")
+        if mta_procs:
+            for p in mta_procs:
+                print(f"    {G}Running{RST}  PID {p['pid']}  {p['name']}  {DIM}{p['exe']}{RST}")
+        else:
+            print(f"    {DIM}Not detected as running{RST}")
+        print(f"    AppData : {_MTA_APPDATA_ROOT}")
+
+        # ── serial sources ──
         serials = get_mta_serial(logger)
         if serials:
-            for path, serial in serials.items():
-                short_path = path.split("\\")[-3] if "\\" in path else path
-                print(f"    Current serial ({short_path}): {C}{serial}{RST}")
+            sep("-")
+            for source, serial in serials.items():
+            # shorten long paths for display
+                label = source
+                if len(label) > 60:
+                    label = "…" + label[-57:]
+                print(f"    {C}{serial}{RST}  {DIM}({label}){RST}")
         else:
-            print(f"    {Y}Serial not found in registry.{RST}")
-            print(f"    {DIM}This is normal if MTA has never been launched.{RST}")
-            print(f"    {DIM}Use [m1] or [m2] to pre-write a serial — MTA will use it on first launch.{RST}")
+            sep("-")
+            print(f"    {Y}No serial found in config files or registry.{RST}")
+            print(f"    {DIM}Use [mp] to pick the MTA process and scan its directory,{RST}")
+            print(f"    {DIM}or use [m1]/[m2] to write a new serial now.{RST}")
+
         sep("-")
-        print(f"  {C}[m1]{RST} Generate & apply random MTA serial")
-        print(f"  {C}[m2]{RST} Enter custom MTA serial")
-        print(f"  {C}[m3]{RST} Delete serial (MTA regenerates from hardware on next launch)")
+        print(f"  {C}[mp]{RST}  Pick MTA process → scan its directory for config files")
+        print(f"  {C}[m1]{RST}  Generate & apply random serial")
+        print(f"  {C}[m2]{RST}  Enter custom serial")
+        print(f"  {C}[m3]{RST}  Delete serial (MTA regenerates from hardware on next launch)")
         sep()
 
         fivem = get_fivem_info()
@@ -3678,6 +3697,83 @@ def _menu_spoofer(logger: CleanerLogger):
         if cmd == "0":
             break
 
+        elif cmd == "mp":
+            # Process picker — find running MTA processes and scan their directories
+            import psutil
+            from core.gaming import _find_coreconfig_files, get_mta_serial_from_config
+            all_procs = []
+            try:
+                for proc in psutil.process_iter(["pid", "name", "exe"]):
+                    try:
+                        all_procs.append(proc.info)
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+            sep()
+            if not all_procs:
+                err("Could not list processes (psutil missing?)."); pause(); continue
+            # Show all processes, let user type a name or number to filter
+            print(f"  Enter part of a process name to filter (e.g. 'mta', 'gta'):")
+            q = prompt("  Filter: ").strip().lower()
+            matched = [p for p in all_procs
+                       if q and q in (p.get("name") or "").lower()
+                       or q and q in (p.get("exe") or "").lower()]
+            if not matched:
+                warn(f"No processes matching '{q}'."); pause(); continue
+            sep("-")
+            print(f"  {'#':>3}  {'PID':>6}  {'Name':<30}  Path")
+            sep("-")
+            for i, p in enumerate(matched):
+                print(f"  {i+1:>3}  {p['pid']:>6}  {(p.get('name') or '')[:30]:<30}  {p.get('exe') or ''}")
+            sep()
+            choice = prompt("Select process number: ").strip()
+            try:
+                idx = int(choice) - 1
+                selected = matched[idx]
+            except (ValueError, IndexError):
+                err("Invalid selection."); pause(); continue
+
+            exe_path = selected.get("exe") or ""
+            if not exe_path:
+                err("Process has no exe path."); pause(); continue
+
+            install_dir = str(Path(exe_path).parent)
+            ok(f"Selected: {selected.get('name')} — {install_dir}")
+
+            # Scan the install directory and common config locations
+            import re as _re
+            serial_re = _re.compile(r"<serial>([A-Fa-f0-9]{32})</serial>", _re.IGNORECASE)
+            found_configs: list[tuple[Path, str]] = []
+
+            search_dirs = [Path(install_dir)]
+            # Also check AppData dirs derived from the process username
+            from core.gaming import _MTA_APPDATA_ROOT
+            if _MTA_APPDATA_ROOT.exists():
+                search_dirs.append(_MTA_APPDATA_ROOT)
+
+            for sdir in search_dirs:
+                for cfg in sdir.rglob("coreconfig.xml"):
+                    try:
+                        text = cfg.read_text(encoding="utf-8", errors="replace")
+                        m = serial_re.search(text)
+                        serial_val = m.group(1).upper() if m else "(not set)"
+                        found_configs.append((cfg, serial_val))
+                    except OSError:
+                        pass
+
+            if found_configs:
+                sep("-")
+                print(f"  Found {len(found_configs)} config file(s):")
+                for cfg_path, serial_val in found_configs:
+                    print(f"    {C}{serial_val}{RST}  {DIM}{cfg_path}{RST}")
+                ok("Config files discovered. Use [m1] or [m2] to apply a new serial.")
+            else:
+                warn("No coreconfig.xml found in that directory or AppData.")
+                print(f"  Searched: {install_dir}")
+                print(f"  Searched: {_MTA_APPDATA_ROOT}")
+            pause()
+
         elif cmd == "m1":
             new_serial = generate_mta_serial()
             warn(f"New serial will be: {C}{new_serial}{RST}")
@@ -3686,13 +3782,13 @@ def _menu_spoofer(logger: CleanerLogger):
             results = set_mta_serial(new_serial, logger)
             written = sum(1 for v in results.values() if v)
             if written:
-                ok(f"MTA serial updated in {written} registry location(s): {new_serial}")
+                ok(f"Serial applied to {written} location(s): {new_serial}")
             else:
-                err("No MTA registry entries found to update.")
+                err("No locations found to update — try [mp] first to locate config files.")
             pause()
 
         elif cmd == "m2":
-            custom = prompt("Enter 32-char hex serial (or press Enter to cancel): ").strip().upper()
+            custom = prompt("Enter 32-char hex serial (or Enter to cancel): ").strip().upper()
             if not custom:
                 continue
             if len(custom) != 32 or not all(c in "0123456789ABCDEF" for c in custom):
@@ -3700,9 +3796,9 @@ def _menu_spoofer(logger: CleanerLogger):
             results = set_mta_serial(custom, logger)
             written = sum(1 for v in results.values() if v)
             if written:
-                ok(f"MTA serial set in {written} location(s): {custom}")
+                ok(f"Serial applied to {written} location(s): {custom}")
             else:
-                err("No MTA registry entries found to update.")
+                err("No locations found to update — try [mp] first to locate config files.")
             pause()
 
         elif cmd == "m3":
@@ -3712,9 +3808,9 @@ def _menu_spoofer(logger: CleanerLogger):
             results = delete_mta_serial(logger)
             deleted = sum(1 for v in results.values() if v)
             if deleted:
-                ok(f"Serial deleted from {deleted} registry location(s). Launch MTA to regenerate.")
+                ok(f"Serial cleared in {deleted} location(s).")
             else:
-                err("Nothing to delete — serial key not found.")
+                err("Nothing found to delete.")
             pause()
 
         elif cmd == "f1":
