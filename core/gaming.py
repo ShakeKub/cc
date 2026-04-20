@@ -82,15 +82,21 @@ def _find_coreconfig_files() -> list[Path]:
             seen.add(p)
             configs.append(p)
 
+    def _scan_dir(d: Path):
+        """Check d and its MTA/mta subfolder for coreconfig.xml."""
+        if not d.exists():
+            return
+        _add(d / "coreconfig.xml")
+        _add(d / "MTA"  / "coreconfig.xml")
+        _add(d / "mta"  / "coreconfig.xml")
+
     def _scan_root(root: Path):
         if not root.exists():
             return
-        # Direct child: root\{version}\coreconfig.xml
+        _scan_dir(root)
         for child in root.iterdir():
             if child.is_dir():
-                _add(child / "coreconfig.xml")
-        # Also root\coreconfig.xml
-        _add(root / "coreconfig.xml")
+                _scan_dir(child)
 
     _scan_root(_MTA_APPDATA_ROOT)
     _scan_root(_MTA_LOCAL_ROOT)
@@ -102,10 +108,8 @@ def _find_coreconfig_files() -> list[Path]:
         if not exe_path:
             continue
         p = Path(exe_path).parent
-        # Walk up to 4 levels looking for coreconfig.xml or MTA-named dirs
-        for _ in range(4):
-            _add(p / "coreconfig.xml")
-            # If this dir looks like an MTA data root, scan it
+        for _ in range(5):
+            _scan_dir(p)
             if "mta san andreas" in p.name.lower():
                 _scan_root(p)
             p = p.parent
