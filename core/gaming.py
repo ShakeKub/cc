@@ -9,11 +9,8 @@ from core.logger import CleanerLogger
 
 # ── MTA San Andreas ──────────────────────────────────────────────────────────
 
-_MTA_REG_ROOTS = [
-    r"Software\Multi Theft Auto: San Andreas All\Common\Settings",
-    r"Software\Multi Theft Auto: San Andreas All\1.5\Settings",
-    r"Software\Multi Theft Auto: San Andreas All\1.6\Settings",
-]
+# Root keys to search — both HKCU and HKLM, both 32/64-bit views
+_MTA_REG_BASE   = r"Software\Multi Theft Auto: San Andreas All"
 _MTA_SERIAL_VALUE = "serial"
 
 
@@ -22,41 +19,109 @@ def _winreg():
     return _wr
 
 
-def get_mta_serial(logger: CleanerLogger) -> dict[str, str]:
-    """Return current MTA serials from all known registry locations."""
+def _mta_find_serial_locations() -> list[tuple]:
+    """
+    Recursively walk every subkey under the MTA root in both HKCU and HKLM
+    and return (hive, full_subkey_path) for every key that contains a 'serial' value.
+    """
     if os.name != "nt":
-        return {}
+        return []
     wr = _winreg()
-    found: dict[str, str] = {}
-    for path in _MTA_REG_ROOTS:
-        try:
-            key = wr.OpenKey(wr.HKEY_CURRENT_USER, path, 0, wr.KEY_READ)
+    found: list[tuple] = []
+
+    hives = [
+        (wr.HKEY_CURRENT_USER, "HKCU"),
+        (wr.HKEY_LOCAL_MACHINE, "HKLM"),
+    ]
+    flags_list = [wr.KEY_READ, wr.KEY_READ | wr.KEY_WOW64_32KEY]
+
+    def _recurse(hive, path: str):
+        for flags in flags_list:
             try:
-                val, _ = wr.QueryValueEx(key, _MTA_SERIAL_VALUE)
-                found[path] = str(val)
+                key = wr.OpenKey(hive, path, 0, flags)
+            except OSError:
+                continue
+            # Check for serial value in this key
+            try:
+                wr.QueryValueEx(key, _MTA_SERIAL_VALUE)
+                if (hive, path) not in found:
+                    found.append((hive, path))
             except OSError:
                 pass
+            # Recurse into subkeys
+            i = 0
+            while True:
+                try:
+                    subname = wr.EnumKey(key, i)
+                    i += 1
+                    _recurse(hive, f"{path}\\{subname}")
+                except OSError:
+                    break
             wr.CloseKey(key)
-        except OSError:
-            pass
+
+    for hive, _ in hives:
+        _recurse(hive, _MTA_REG_BASE)
+
     return found
 
 
-def set_mta_serial(new_serial: str, logger: CleanerLogger) -> dict[str, bool]:
-    """Write new_serial to every MTA registry location that exists."""
+def get_mta_serial(logger: CleanerLogger) -> dict[str, str]:
+    """
+    Return current MTA serials discovered by scanning the full registry tree.
+    Returns {full_key_path: serial_value}.
+    """
     if os.name != "nt":
         return {}
     wr = _winreg()
-    results: dict[str, bool] = {}
-    for path in _MTA_REG_ROOTS:
+    result: dict[str, str] = {}
+    for hive, path in _mta_find_serial_locations():
         try:
-            key = wr.OpenKey(wr.HKEY_CURRENT_USER, path, 0, wr.KEY_SET_VALUE)
+            key = wr.OpenKey(hive, path, 0, wr.KEY_READ)
+            val, _ = wr.QueryValueEx(key, _MTA_SERIAL_VALUE)
+            wr.CloseKey(key)
+            hive_name = "HKCU" if hive == wr.HKEY_CURRENT_USER else "HKLM"
+            result[f"{hive_name}\\{path}"] = str(val)
+        except OSError:
+            pass
+    return result
+
+
+def set_mta_serial(new_serial: str, logger: CleanerLogger) -> dict[str, bool]:
+    """
+    Write new_serial to every MTA location that currently holds a serial.
+    If no serial exists yet, write it to the most likely default location.
+    """
+    if os.name != "nt":
+        return {}
+    wr = _winreg()
+    locations = _mta_find_serial_locations()
+
+    # If MTA has never been launched, serial doesn't exist yet —
+    # pre-write it to the expected 1.6 path so MTA picks it up.
+    if not locations:
+        fallback = rf"{_MTA_REG_BASE}\1.6\Settings"
+        try:
+            key = wr.CreateKeyEx(wr.HKEY_CURRENT_USER, fallback, 0, wr.KEY_SET_VALUE)
             wr.SetValueEx(key, _MTA_SERIAL_VALUE, 0, wr.REG_SZ, new_serial)
             wr.CloseKey(key)
-            results[path] = True
-            logger.log("mta_spoof", "gaming", f"Set MTA serial at {path}: {new_serial}")
-        except OSError:
-            results[path] = False
+            logger.log("mta_spoof", "gaming", f"Pre-wrote MTA serial at {fallback}: {new_serial}")
+            return {f"HKCU\\{fallback}": True}
+        except OSError as e:
+            logger.error(f"set_mta_serial fallback failed: {e}")
+            return {}
+
+    results: dict[str, bool] = {}
+    for hive, path in locations:
+        hive_name = "HKCU" if hive == wr.HKEY_CURRENT_USER else "HKLM"
+        try:
+            key = wr.OpenKey(hive, path, 0, wr.KEY_SET_VALUE)
+            wr.SetValueEx(key, _MTA_SERIAL_VALUE, 0, wr.REG_SZ, new_serial)
+            wr.CloseKey(key)
+            results[f"{hive_name}\\{path}"] = True
+            logger.log("mta_spoof", "gaming", f"Set MTA serial at {hive_name}\\{path}: {new_serial}")
+        except OSError as e:
+            results[f"{hive_name}\\{path}"] = False
+            logger.error(f"set_mta_serial error at {path}: {e}")
     return results
 
 
@@ -66,23 +131,23 @@ def generate_mta_serial() -> str:
 
 
 def delete_mta_serial(logger: CleanerLogger) -> dict[str, bool]:
-    """Delete the serial value — MTA regenerates from hardware on next launch."""
+    """Delete the serial value from all found locations — MTA regenerates on next launch."""
     if os.name != "nt":
         return {}
     wr = _winreg()
     results: dict[str, bool] = {}
-    for path in _MTA_REG_ROOTS:
+    for hive, path in _mta_find_serial_locations():
+        hive_name = "HKCU" if hive == wr.HKEY_CURRENT_USER else "HKLM"
+        label = f"{hive_name}\\{path}"
         try:
-            key = wr.OpenKey(wr.HKEY_CURRENT_USER, path, 0, wr.KEY_SET_VALUE)
-            try:
-                wr.DeleteValue(key, _MTA_SERIAL_VALUE)
-                results[path] = True
-                logger.log("mta_serial_del", "gaming", f"Deleted MTA serial at {path}")
-            except OSError:
-                results[path] = False
+            key = wr.OpenKey(hive, path, 0, wr.KEY_SET_VALUE)
+            wr.DeleteValue(key, _MTA_SERIAL_VALUE)
             wr.CloseKey(key)
-        except OSError:
-            results[path] = False
+            results[label] = True
+            logger.log("mta_serial_del", "gaming", f"Deleted MTA serial at {label}")
+        except OSError as e:
+            results[label] = False
+            logger.error(f"delete_mta_serial error at {path}: {e}")
     return results
 
 

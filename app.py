@@ -3648,7 +3648,9 @@ def _menu_spoofer(logger: CleanerLogger):
                 short_path = path.split("\\")[-3] if "\\" in path else path
                 print(f"    Current serial ({short_path}): {C}{serial}{RST}")
         else:
-            print(f"    {DIM}No MTA installation found in registry.{RST}")
+            print(f"    {Y}Serial not found in registry.{RST}")
+            print(f"    {DIM}This is normal if MTA has never been launched.{RST}")
+            print(f"    {DIM}Use [m1] or [m2] to pre-write a serial — MTA will use it on first launch.{RST}")
         sep("-")
         print(f"  {C}[m1]{RST} Generate & apply random MTA serial")
         print(f"  {C}[m2]{RST} Enter custom MTA serial")
