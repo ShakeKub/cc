@@ -3747,86 +3747,8 @@ def _menu_spoofer(logger: CleanerLogger):
             err("Unknown option.")
 
 
-def _menu_gaming_optimizer(logger: CleanerLogger):
-    from core.gaming import (enable_game_mode, disable_game_bar,
-                              set_gpu_high_priority, disable_fullscreen_optimizations)
-    while True:
-        header("Gaming Optimizer")
-        sep()
-        print(f"  {DIM}Registry tweaks for better in-game performance. Requires admin for GPU priority.{RST}")
-        sep()
-        print(f"  {C}[1]{RST} Enable Windows Game Mode")
-        print(f"  {C}[2]{RST} Disable Xbox Game Bar & Game DVR overlay")
-        print(f"  {C}[3]{RST} Set GPU + system scheduler to High priority  {DIM}(reboot to apply){RST}")
-        print(f"  {C}[4]{RST} Disable fullscreen optimizations system-wide")
-        print(f"  {C}[all]{RST} Apply all four tweaks")
-        print(f"  {C}[0]{RST} {t('menu.back')}")
-        sep()
-        cmd = prompt().strip().lower()
-        if cmd == "0":
-            break
-        actions = ["1","2","3","4"] if cmd == "all" else ([cmd] if cmd in ("1","2","3","4") else [])
-        if not actions:
-            err("Unknown option."); pause(); continue
-        for act in actions:
-            if act == "1":
-                ok("Game Mode enabled.") if enable_game_mode(logger) else err("Failed.")
-            elif act == "2":
-                ok("Game Bar and DVR disabled.") if disable_game_bar(logger) else err("Failed.")
-            elif act == "3":
-                ok("GPU priority set to High (reboot required).") if set_gpu_high_priority(logger) else err("Failed — admin required.")
-            elif act == "4":
-                ok("Fullscreen optimizations disabled.") if disable_fullscreen_optimizations(logger) else err("Failed.")
-        pause()
-
-
-def _menu_installed_games(logger: CleanerLogger):
-    from core.gaming import find_installed_games
-    games: list[dict] = []
-    while True:
-        header("Installed Games")
-        if not games:
-            info("Scanning Steam, Epic, GOG, Ubisoft Connect…")
-            games = find_installed_games(logger)
-        sep()
-        if not games:
-            warn("No games found. Supported launchers: Steam, Epic, GOG, Ubisoft Connect.")
-        else:
-            total_gb = sum(g["size_gb"] for g in games)
-            print(f"  {len(games)} game(s) found — {total_gb:.1f} GB total")
-            sep("-")
-            print(f"  {'#':>3}  {'Game':<45}  {'Platform':<12}  Size")
-            sep("-")
-            for i, g in enumerate(games):
-                print(f"  {i+1:>3}  {g['name'][:45]:<45}  {g['platform']:<12}  {g['size_gb']} GB")
-        sep()
-        print(f"  {C}[r]{RST} Rescan   {C}[0]{RST} {t('menu.back')}")
-        sep()
-        cmd = prompt()
-        if cmd == "0":
-            break
-        if cmd == "r":
-            games = []
-
-
 def menu_gaming(logger: CleanerLogger):
-    while True:
-        header("Gaming")
-        sep()
-        print(f"  {C}[1]{RST} Spoofer           — MTA serial, FiveM identity & cache")
-        print(f"  {C}[2]{RST} Gaming Optimizer   — Game Mode, Game Bar, GPU priority, FSO")
-        print(f"  {C}[3]{RST} Installed Games    — Scan Steam, Epic, GOG, Ubisoft Connect")
-        print(f"  {C}[0]{RST} {t('menu.back')}")
-        sep()
-        cmd = prompt()
-        if cmd == "0":
-            break
-        elif cmd == "1":
-            _menu_spoofer(logger)
-        elif cmd == "2":
-            _menu_gaming_optimizer(logger)
-        elif cmd == "3":
-            _menu_installed_games(logger)
+    _menu_spoofer(logger)
 
 
 def menu_history(logger: CleanerLogger):
