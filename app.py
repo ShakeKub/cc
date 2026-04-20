@@ -4467,6 +4467,7 @@ def menu_executor(logger: CleanerLogger):
         print(f"  {C}[3]{RST} Save current code to file")
         print(f"  {C}[4]{RST} List / delete saved scripts")
         print(f"  {C}[5]{RST} Set local MTA resources directory")
+        print(f"  {C}[6]{RST} Find triggers  {DIM}(scan Lua files for events / trigger calls){RST}")
         print(f"  {C}[0]{RST} Back")
         sep()
         print(f"  {DIM}Scripts run client-side — no server access needed.{RST}")
@@ -4603,6 +4604,135 @@ def menu_executor(logger: CleanerLogger):
                 ok(f"Set to: {res_dir}")
             else:
                 err("Path does not exist.")
+            pause()
+
+        elif c == "6":
+            _menu_find_triggers(_exc)
+
+
+def _menu_find_triggers(_exc):
+    """Trigger finder sub-menu — scan a directory of Lua files for MTA events."""
+    header("Find Triggers")
+    print(f"  {DIM}Scan a folder of Lua scripts for MTA event/trigger calls.{RST}")
+    print(f"  {DIM}Useful for exploring a resource pack you downloaded or own.{RST}")
+    sep()
+    scan_path = prompt("Path to scan (folder with .lua files): ").strip()
+    if not scan_path or not Path(scan_path).exists():
+        err("Path does not exist.")
+        pause()
+        return
+
+    info("Scanning…")
+    result = _exc.find_triggers(scan_path)
+
+    if result["total"] == 0:
+        warn(f"No triggers found in {result['files_scanned']} file(s).")
+        pause()
+        return
+
+    # ── display by category ──────────────────────────────────────────────────
+    _CAT_COLOR = {
+        "addEvent":                 G,
+        "addEventHandler":          G,
+        "triggerServerEvent":       Y,
+        "triggerClientEvent":       C,
+        "triggerLatentServerEvent": Y,
+        "triggerLatentClientEvent": C,
+        "removeEventHandler":       R,
+    }
+
+    while True:
+        header("Trigger Finder Results")
+        print(f"  Scanned {result['files_scanned']} file(s)  │  "
+              f"{result['total']} hits  │  "
+              f"{len(result['by_event'])} unique event names")
+        sep()
+
+        # Summary per category
+        for cat in _exc._CATEGORY_ORDER:
+            hits = result["by_category"].get(cat, [])
+            if hits:
+                col = _CAT_COLOR.get(cat, W)
+                print(f"  {col}{cat:<28}{RST}  {len(hits):>4} hit(s)")
+        sep()
+
+        # Unique event names list
+        events = sorted(result["by_event"].keys())
+        for i, ev in enumerate(events, 1):
+            cats_found = {e["category"] for e in result["by_event"][ev]}
+            col = Y if "triggerServerEvent" in cats_found else (
+                  C if "triggerClientEvent" in cats_found else G)
+            print(f"  {DIM}{i:>3}{RST}  {col}{ev}{RST}  "
+                  f"{DIM}{', '.join(sorted(cats_found))}{RST}")
+
+        sep()
+        print(f"  {C}[<n>]{RST}  Inspect event & generate snippet")
+        print(f"  {C}[d]  {RST}  Deploy all triggerServerEvent calls as one script")
+        print(f"  {C}[0]  {RST}  Back")
+        sep()
+
+        cmd = prompt().strip().lower()
+        if cmd == "0":
+            break
+
+        elif cmd == "d":
+            # Build a combined client script that calls all triggerServerEvent events
+            sv_events = sorted({
+                e["name"]
+                for e in result["by_category"].get("triggerServerEvent", [])
+            })
+            if not sv_events:
+                err("No triggerServerEvent calls found.")
+                pause()
+                continue
+            lines = ["-- Auto-generated: all triggerServerEvent calls found\n"]
+            for ev in sv_events:
+                safe = _exc._safe_cmd(ev)
+                lines.append(
+                    f'addCommandHandler("t_{safe}", function()\n'
+                    f'    triggerServerEvent("{ev}", localPlayer)\n'
+                    f'end)\n'
+                )
+            code = "\n".join(lines)
+            ok(f"Generated snippet for {len(sv_events)} event(s).")
+            print(f"\n{DIM}{code[:800]}{'...' if len(code) > 800 else ''}{RST}")
+            sep()
+            print(f"  {C}[s]{RST} Save to scripts  {C}[enter]{RST} Skip")
+            if prompt().strip().lower() == "s":
+                name = prompt("Script name: ").strip() or "triggers_all"
+                if _exc.save_script(name, code):
+                    ok(f"Saved as '{name}.lua'")
+                else:
+                    err("Save failed.")
+            pause()
+
+        else:
+            try:
+                idx = int(cmd) - 1
+                ev = events[idx]
+            except (ValueError, IndexError):
+                continue
+
+            entries = result["by_event"][ev]
+            header(f"Event: {ev}")
+            for e in entries:
+                col = _CAT_COLOR.get(e["category"], W)
+                print(f"  {col}{e['category']}{RST}  "
+                      f"{DIM}{e['file']}:{e['line']}{RST}")
+                print(f"    {DIM}{e['context']}{RST}")
+            sep()
+
+            snippet = _exc.build_trigger_snippet(ev, entries)
+            print(f"  {Y}Generated snippet:{RST}")
+            print(f"{DIM}{snippet}{RST}")
+            sep()
+            print(f"  {C}[s]{RST} Save snippet  {C}[enter]{RST} Back")
+            if prompt().strip().lower() == "s":
+                name = prompt("Script name: ").strip() or f"trig_{_exc._safe_cmd(ev)}"
+                if _exc.save_script(name, snippet):
+                    ok(f"Saved as '{name}.lua'")
+                else:
+                    err("Save failed.")
             pause()
 
 
