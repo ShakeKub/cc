@@ -3634,7 +3634,7 @@ def _menu_spoofer(logger: CleanerLogger):
     from core.gaming import (
         get_mta_serial, set_mta_serial, generate_mta_serial, delete_mta_serial,
         find_mta_processes, get_fivem_info, clear_fivem_identity, clear_fivem_full_cache,
-        _MTA_APPDATA_ROOT,
+        _MTA_APPDATA_ROOT, _MTA_LOCAL_ROOT, _MTA_PROGDATA_ROOT,
     )
     while True:
         header("Spoofer")
@@ -3651,7 +3651,11 @@ def _menu_spoofer(logger: CleanerLogger):
                 print(f"    {G}Running{RST}  PID {p['pid']}  {p['name']}  {DIM}{p['exe']}{RST}")
         else:
             print(f"    {DIM}Not detected as running{RST}")
-        print(f"    AppData : {_MTA_APPDATA_ROOT}")
+        for label, root in (("AppData", _MTA_APPDATA_ROOT),
+                              ("LocalApp", _MTA_LOCAL_ROOT),
+                              ("ProgramData", _MTA_PROGDATA_ROOT)):
+            exists_lbl = f"{G}✓{RST}" if root.exists() else f"{DIM}✗{RST}"
+            print(f"    {exists_lbl} {label}: {root}")
 
         # ── serial sources ──
         serials = get_mta_serial(logger)
@@ -3747,10 +3751,18 @@ def _menu_spoofer(logger: CleanerLogger):
             found_configs: list[tuple[Path, str]] = []
 
             search_dirs = [Path(install_dir)]
-            # Also check AppData dirs derived from the process username
-            from core.gaming import _MTA_APPDATA_ROOT
-            if _MTA_APPDATA_ROOT.exists():
-                search_dirs.append(_MTA_APPDATA_ROOT)
+            # Walk up from install dir to catch parent MTA data dirs
+            p = Path(install_dir).parent
+            for _ in range(4):
+                if "mta san andreas" in p.name.lower():
+                    search_dirs.append(p)
+                p = p.parent
+                if p == p.parent:
+                    break
+            # Add all known MTA data roots
+            for root in (_MTA_APPDATA_ROOT, _MTA_LOCAL_ROOT, _MTA_PROGDATA_ROOT):
+                if root.exists() and root not in search_dirs:
+                    search_dirs.append(root)
 
             for sdir in search_dirs:
                 for cfg in sdir.rglob("coreconfig.xml"):
@@ -3769,9 +3781,9 @@ def _menu_spoofer(logger: CleanerLogger):
                     print(f"    {C}{serial_val}{RST}  {DIM}{cfg_path}{RST}")
                 ok("Config files discovered. Use [m1] or [m2] to apply a new serial.")
             else:
-                warn("No coreconfig.xml found in that directory or AppData.")
-                print(f"  Searched: {install_dir}")
-                print(f"  Searched: {_MTA_APPDATA_ROOT}")
+                warn("No coreconfig.xml found in any searched directory.")
+                for sd in search_dirs:
+                    print(f"  Searched: {sd}")
             pause()
 
         elif cmd == "m1":

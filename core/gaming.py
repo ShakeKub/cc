@@ -13,8 +13,10 @@ from core.logger import CleanerLogger
 _MTA_REG_BASE     = r"Software\Multi Theft Auto: San Andreas All"
 _MTA_SERIAL_VALUE = "serial"
 
-# coreconfig.xml is MTA's primary config, stored in the user AppData per-version
-_MTA_APPDATA_ROOT = Path(os.environ.get("APPDATA", "")) / "MTA San Andreas All"
+# All directories where MTA may store coreconfig.xml
+_MTA_APPDATA_ROOT = Path(os.environ.get("APPDATA",      "")) / "MTA San Andreas All"
+_MTA_LOCAL_ROOT   = Path(os.environ.get("LOCALAPPDATA", "")) / "MTA San Andreas All"
+_MTA_PROGDATA_ROOT = Path(os.environ.get("PROGRAMDATA",  r"C:\ProgramData")) / "MTA San Andreas All"
 
 
 def _winreg():
@@ -65,27 +67,50 @@ def get_mta_install_dir_from_process() -> str:
 
 def _find_coreconfig_files() -> list[Path]:
     """
-    Return all coreconfig.xml paths under MTA's AppData directory,
-    plus any found beside the running process executable.
+    Return all coreconfig.xml paths by searching every location MTA might use:
+    - %APPDATA%\\MTA San Andreas All\\
+    - %LOCALAPPDATA%\\MTA San Andreas All\\
+    - %PROGRAMDATA%\\MTA San Andreas All\\
+    - Parent directories derived from running MTA process paths
+    - The install directory itself
     """
     configs: list[Path] = []
+    seen: set[Path] = set()
 
-    # Scan AppData: %APPDATA%\MTA San Andreas All\{version}\coreconfig.xml
-    if _MTA_APPDATA_ROOT.exists():
-        for child in _MTA_APPDATA_ROOT.iterdir():
-            cfg = child / "coreconfig.xml"
-            if cfg.exists():
-                configs.append(cfg)
+    def _add(p: Path):
+        if p.exists() and p not in seen:
+            seen.add(p)
+            configs.append(p)
 
-    # Also check install dir (some setups write config next to the exe)
-    install_dir = get_mta_install_dir_from_process()
-    if install_dir:
-        for candidate in (
-            Path(install_dir) / "coreconfig.xml",
-            Path(install_dir) / "mta" / "coreconfig.xml",
-        ):
-            if candidate.exists() and candidate not in configs:
-                configs.append(candidate)
+    def _scan_root(root: Path):
+        if not root.exists():
+            return
+        # Direct child: root\{version}\coreconfig.xml
+        for child in root.iterdir():
+            if child.is_dir():
+                _add(child / "coreconfig.xml")
+        # Also root\coreconfig.xml
+        _add(root / "coreconfig.xml")
+
+    _scan_root(_MTA_APPDATA_ROOT)
+    _scan_root(_MTA_LOCAL_ROOT)
+    _scan_root(_MTA_PROGDATA_ROOT)
+
+    # Walk up from every running MTA process's exe path
+    for proc in find_mta_processes():
+        exe_path = proc.get("exe", "")
+        if not exe_path:
+            continue
+        p = Path(exe_path).parent
+        # Walk up to 4 levels looking for coreconfig.xml or MTA-named dirs
+        for _ in range(4):
+            _add(p / "coreconfig.xml")
+            # If this dir looks like an MTA data root, scan it
+            if "mta san andreas" in p.name.lower():
+                _scan_root(p)
+            p = p.parent
+            if p == p.parent:
+                break
 
     return configs
 
