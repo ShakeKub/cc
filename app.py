@@ -180,6 +180,7 @@ def _menu_categories():
             ("36", t("menu.shortcut_fixer")),
             ("37", t("menu.msi_cache")),
             ("35", t("menu.font_mgr")),
+            ("47", t("menu.file_encrypt")),
         ]),
         (t("cat.tools"), [
             ("11", t("menu.browser_tools")),
@@ -196,6 +197,8 @@ def _menu_categories():
             ("32", t("menu.perf_boost")),
             ("33", t("menu.env_vars")),
             ("34", t("menu.firewall")),
+            ("46", t("menu.pkg_mgr")),
+            ("49", t("menu.app_mgr")),
         ]),
         (t("cat.monitoring"), [
             ("22", t("menu.app_tracer")),
@@ -205,6 +208,7 @@ def _menu_categories():
             ("26", t("menu.disk_health")),
             ("38", t("menu.sys_info")),
             ("39", t("menu.net_speed")),
+            ("48", t("menu.driver_mgr")),
         ]),
         (t("cat.system"), [
             ("27", t("menu.history_mgr")),
@@ -219,27 +223,66 @@ def _menu_categories():
         ]),
         (t("cat.gaming"), [
             ("44", t("menu.gaming")),
+            ("45", t("menu.executor")),
         ]),
     ]
 
 
-def _print_menu_categories(categories):
-    COL_W = 28  # width of each column entry (number + label)
-    for cat_label, items in categories:
-        # category header
-        label_pad = 54 - len(cat_label)
-        print(f"  {DIM}── {cat_label} {'─' * max(label_pad, 2)}{RST}")
-        # items in pairs
+# Category icons for the home screen
+_CAT_ICONS = ["⚙", "📁", "🔧", "📊", "🖥", "🎮"]
+
+
+def _print_home_categories(categories):
+    """Print only category names on the home screen in a 2-column grid."""
+    print()
+    for i, (cat_label, _) in enumerate(categories, 1):
+        icon = _CAT_ICONS[i - 1] if i - 1 < len(_CAT_ICONS) else " "
+        entry = f"  {C}[{i}]{RST} {icon}  {B}{cat_label}{RST}"
+        print(entry)
+    print()
+
+
+def _menu_category_view(cat_label: str, items: list, logger: CleanerLogger):
+    """Show all items inside a category and dispatch the user's choice."""
+    while True:
+        clr()
+        print(f"{G}{B}")
+        print("  ███████╗██╗   ██╗███████╗     ██████╗██╗     ███████╗ █████╗ ███╗   ██╗")
+        print("  ██╔════╝╚██╗ ██╔╝██╔════╝    ██╔════╝██║     ██╔════╝██╔══██╗████╗  ██║")
+        print("  ███████╗ ╚████╔╝ ███████╗    ██║     ██║     █████╗  ███████║██╔██╗ ██║")
+        print("  ╚════██║  ╚██╔╝  ╚════██║    ██║     ██║     ██╔══╝  ██╔══██║██║╚██╗██║")
+        print("  ███████║   ██║   ███████║    ╚██████╗███████╗███████╗██║  ██║██║ ╚████║")
+        print("  ╚══════╝   ╚═╝   ╚══════╝     ╚═════╝╚══════╝╚══════╝╚═╝  ╚═╝╚═╝  ╚═══╝")
+        print(f"{RST}")
+        sep()
+        print(f"  {C}{B}{cat_label}{RST}")
+        sep()
+
+        COL_W = 32
         for i in range(0, len(items), 2):
             num_l, lbl_l = items[i]
-            left  = f"  {C}[{num_l:>2}]{RST} {lbl_l}"
+            left = f"  {C}[{num_l:>2}]{RST} {lbl_l}"
             if i + 1 < len(items):
                 num_r, lbl_r = items[i + 1]
                 right = f"  {C}[{num_r:>2}]{RST} {lbl_r}"
             else:
                 right = ""
             print(f"{left:<{COL_W + 12}}{right}")
+
         print()
+        print(f"  {C}[ 0]{RST} {t('menu.back')}")
+        sep()
+        choice = prompt()
+
+        if choice in ("0", "b", "back"):
+            return
+
+        action = _DISPATCH.get(choice)
+        if action:
+            action(logger)
+        else:
+            err(t("app.unknown_option"))
+            pause()
 
 
 _DISPATCH = {
@@ -287,6 +330,11 @@ _DISPATCH = {
     "42": lambda l: menu_adblocker(l),
     "43": lambda l: menu_wol(l),
     "44": lambda l: menu_gaming(l),
+    "45": lambda l: menu_executor(l),
+    "46": lambda l: menu_pkgmgr(l),
+    "47": lambda l: menu_fileencrypt(l),
+    "48": lambda l: menu_drivermgr(l),
+    "49": lambda l: menu_appmgr(l),
 }
 
 
@@ -309,7 +357,8 @@ def main_menu(logger: CleanerLogger):
         print(f"  {admin_tag}")
         sep()
 
-        _print_menu_categories(_menu_categories())
+        categories = _menu_categories()
+        _print_home_categories(categories)
 
         print(f"  {C}[ 0]{RST} {t('menu.exit')}")
         sep()
@@ -321,12 +370,17 @@ def main_menu(logger: CleanerLogger):
             logger.export_json()
             sys.exit(0)
 
-        action = _DISPATCH.get(choice)
-        if action:
-            action(logger)
-        else:
-            err(t("app.unknown_option"))
-            pause()
+        try:
+            cat_idx = int(choice) - 1
+            if 0 <= cat_idx < len(categories):
+                cat_label, items = categories[cat_idx]
+                _menu_category_view(cat_label, items, logger)
+                continue
+        except ValueError:
+            pass
+
+        err(t("app.unknown_option"))
+        pause()
 
 
 # ── 1. SCAN ─────────────────────────────────────────────────
@@ -975,6 +1029,9 @@ def menu_tracer(logger: CleanerLogger):
         print(f"  {C}[5]{RST} {t('tracer.clean')}")
         print(f"  {C}[6]{RST} {t('tracer.delete')}")
         print(f"  {C}[7]{RST} {t('tracer.deep')}")
+        sep("-")
+        print(f"  {C}[8]{RST} Pre-launch scan   {DIM}— static trace scan before the app runs{RST}")
+        print(f"  {C}[9]{RST} Protected run      {DIM}— snapshot + optional net block + diff on exit{RST}")
         print(f"  {C}[0]{RST} {t('menu.back')}")
         sep()
         c = prompt()
@@ -1188,6 +1245,141 @@ def menu_tracer(logger: CleanerLogger):
                     print(f"  Total size   : {fmt_bytes(summary.get('total_size',0))}")
                 except Exception as e:
                     err(str(e))
+            pause()
+
+        # ── [8] Pre-launch scan ──────────────────────────────
+        elif c == "8":
+            app_name = prompt("App name or exe to scan (e.g. 'discord', 'obs64'): ").strip()
+            if not app_name:
+                continue
+            info(f"Scanning existing traces for '{app_name}'…")
+            try:
+                from core.sandbox import pre_launch_scan
+                result = pre_launch_scan(app_name, logger)
+                summary = result["summary"]
+                traces  = result["traces"]
+                sep()
+                print(f"  {B}Pre-launch snapshot — existing traces for '{app_name}'{RST}")
+                sep("-")
+                print(f"  Files        : {G if summary['files'] == 0 else Y}{summary['files']}{RST}")
+                print(f"  Registry     : {G if summary['registry'] == 0 else Y}{summary['registry']}{RST}")
+                print(f"  Services     : {summary['services']}")
+                print(f"  Sched. tasks : {summary['scheduled_tasks']}")
+                print(f"  Startup      : {summary['startup']}")
+                print(f"  Processes    : {G if summary['processes'] == 0 else Y}{summary['processes']}{RST}")
+                print(f"  Disk used    : {fmt_bytes(summary['total_size'])}")
+
+                if traces.get("files"):
+                    sep("-")
+                    print(f"  {Y}Files found:{RST}")
+                    for item in traces["files"][:15]:
+                        print(f"    {item['category']:<12}  {item['path'][:65]}")
+                    if len(traces["files"]) > 15:
+                        print(f"    {DIM}… and {len(traces['files'])-15} more{RST}")
+
+                if traces.get("registry"):
+                    print(f"  {Y}Registry keys:{RST}")
+                    for item in traces["registry"][:10]:
+                        print(f"    {item['path'][:70]}")
+
+                if traces.get("processes"):
+                    print(f"  {R}Already running:{RST}")
+                    for item in traces["processes"]:
+                        print(f"    {item['name']}  PID {item['pid']}")
+
+                sep()
+                print(f"  {DIM}This is the state BEFORE you run the app.{RST}")
+                print(f"  {DIM}Use [9] Protected Run to see what changes after launch.{RST}")
+            except Exception as e:
+                err(str(e))
+            pause()
+
+        # ── [9] Protected run ────────────────────────────────
+        elif c == "9":
+            exe = prompt("Path to .exe to launch: ").strip().strip('"')
+            if not exe or not Path(exe).is_file():
+                err("File not found."); pause(); continue
+
+            watch_default = os.path.expanduser("~")
+            watch_raw = prompt(f"Watch path [{watch_default}]: ").strip() or watch_default
+            if not os.path.isdir(watch_raw):
+                err("Directory not found."); pause(); continue
+
+            block_net = prompt("Block internet while running? [Y/n]: ").strip().lower() != "n"
+
+            print()
+            if block_net:
+                print(f"  {Y}Internet will be blocked for this process via Windows Firewall.{RST}")
+            print(f"  {DIM}Taking before-snapshot of '{watch_raw}'… (may take a moment){RST}")
+
+            try:
+                from core.sandbox import launch_protected, finish_protected
+                ctx = launch_protected(exe, block_network=block_net,
+                                       watch_paths=[watch_raw], logger=logger)
+                if not ctx["ok"]:
+                    err(f"Failed to launch: {ctx.get('error','')}"); pause(); continue
+
+                ok(f"Launched PID {ctx['pid']}  {'[internet BLOCKED]' if ctx['blocked'] else '[internet allowed]'}")
+                if block_net and not ctx["blocked"]:
+                    warn(f"Firewall block failed: {ctx.get('block_err','')} (admin required)")
+
+                print(f"\n  {Y}App is running.  Press Enter when it exits or you want to stop…{RST}\n")
+                try:
+                    input()
+                except (KeyboardInterrupt, EOFError):
+                    pass
+
+                # Kill if still running
+                proc = ctx.get("process")
+                if proc and proc.poll() is None:
+                    warn("Process still running — killing it.")
+                    try:
+                        proc.kill()
+                    except Exception:
+                        pass
+
+                info("Taking after-snapshot and computing diff…")
+                diff = finish_protected(ctx, logger)
+                s = diff["summary"]
+
+                sep("═")
+                print(f"  {B}Protected Run — Diff Report{RST}  {DIM}({Path(exe).name}){RST}")
+                sep("-")
+                print(f"  {G}Added    : {s['added']:>5} file(s){RST}")
+                print(f"  {Y}Modified : {s['modified']:>5} file(s){RST}")
+                print(f"  {R}Deleted  : {s['deleted']:>5} file(s){RST}")
+                print(f"  {DIM}Unchanged: {s['unchanged']:>5} file(s){RST}")
+                print(f"  {Y}Registry : {s['registry']:>5} change(s){RST}")
+                sep("-")
+
+                if diff["files_added"]:
+                    print(f"\n  {G}ADDED FILES ({len(diff['files_added'])}){RST}")
+                    for f in diff["files_added"][:20]:
+                        print(f"    {G}+{RST} {f}")
+                    if len(diff["files_added"]) > 20:
+                        print(f"    {DIM}… and {len(diff['files_added'])-20} more{RST}")
+
+                if diff["files_modified"]:
+                    print(f"\n  {Y}MODIFIED FILES ({len(diff['files_modified'])}){RST}")
+                    for f in diff["files_modified"][:20]:
+                        print(f"    {Y}~{RST} {f}")
+                    if len(diff["files_modified"]) > 20:
+                        print(f"    {DIM}… and {len(diff['files_modified'])-20} more{RST}")
+
+                if diff["files_deleted"]:
+                    print(f"\n  {R}DELETED FILES ({len(diff['files_deleted'])}){RST}")
+                    for f in diff["files_deleted"][:10]:
+                        print(f"    {R}-{RST} {f}")
+
+                if diff["registry"]:
+                    print(f"\n  {Y}REGISTRY CHANGES ({len(diff['registry'])}){RST}")
+                    for r in diff["registry"][:15]:
+                        rtype = r["type"]
+                        rcol  = G if "added" in rtype else R if "deleted" in rtype else Y
+                        print(f"    {rcol}{rtype:<16}{RST}  {r['path'][:65]}")
+
+            except Exception as e:
+                err(str(e))
             pause()
 
 
@@ -1630,8 +1822,11 @@ def menu_scout(logger: CleanerLogger):
         print(f"  {C}[1]{RST} Start Scout session  (live feed)")
         print(f"  {C}[2]{RST} Stop active session")
         print(f"  {C}[3]{RST} List saved sessions")
-        print(f"  {C}[4]{RST} View session report")
+        print(f"  {C}[4]{RST} View session report  {DIM}(added / modified / deleted / unchanged){RST}")
         print(f"  {C}[5]{RST} Delete a session")
+        sep("-")
+        print(f"  {C}[6]{RST} Pre-launch scan      {DIM}(inspect existing app traces before running){RST}")
+        print(f"  {C}[7]{RST} Protected run         {DIM}(snapshot + net block + diff on exit){RST}")
         print(f"  {C}[0]{RST} Back")
         sep()
         c = prompt()
@@ -1782,12 +1977,40 @@ def menu_scout(logger: CleanerLogger):
             print(f"  Target   : {session.get('target_process') or 'all processes'}")
             sep()
 
+            # ── file diff breakdown ──────────────────────────
+            file_evs = session.get("file_events", [])
+            created  = [e for e in file_evs if e.get("type") == "CREATE"]
+            modified = [e for e in file_evs if e.get("type") == "MODIFY"]
+            deleted  = [e for e in file_evs if e.get("type") == "DELETE"]
+            moved    = [e for e in file_evs if e.get("type") == "MOVE"]
+
+            if file_evs:
+                print(f"\n  {W}{B}FILES  "
+                      f"{G}+{len(created)}{RST}  "
+                      f"{Y}~{len(modified)}{RST}  "
+                      f"{R}-{len(deleted)}{RST}  "
+                      f"{C}→{len(moved)}{RST}")
+                for label2, subset, col2, prefix in [
+                    ("CREATED",  created,  G, "+"),
+                    ("MODIFIED", modified, Y, "~"),
+                    ("DELETED",  deleted,  R, "-"),
+                    ("MOVED",    moved,    C, "→"),
+                ]:
+                    if not subset:
+                        continue
+                    print(f"\n    {col2}{label2} ({len(subset)}){RST}")
+                    for ev in subset[:20]:
+                        dest = f"  →  {ev.get('dest','')}" if ev.get("dest") else ""
+                        print(f"      {DIM}{ev.get('time','')}{RST}  {col2}{prefix}{RST}  {ev.get('path','')[:65]}{dest}")
+                    if len(subset) > 20:
+                        print(f"      {DIM}… and {len(subset)-20} more{RST}")
+
+            # ── other sections ───────────────────────────────
             sections = [
                 ("NETWORK CONNECTIONS",  "network_events",  C),
                 ("REGISTRY CHANGES",     "registry_events", Y),
                 ("DOWNLOADS",            "download_events", G),
-                ("PROCESSES SPAWNED",    "process_events",  G),
-                ("FILES CREATED/MODIFIED/DELETED", "file_events", W),
+                ("PROCESSES",            "process_events",  G),
             ]
             for title, key, col in sections:
                 events = session.get(key, [])
@@ -1803,7 +2026,7 @@ def menu_scout(logger: CleanerLogger):
                         host = ev.get("remote_host", ev.get("remote", ""))
                         extra = f"  [{host}]"
                     elif etype == "REG_MODIFY":
-                        extra = f"  {ev.get('old_value','')[:40]} => {ev.get('new_value','')[:40]}"
+                        extra = f"  {ev.get('old_value','')[:35]} => {ev.get('new_value','')[:35]}"
                     elif etype == "SPAWN":
                         extra = f"  pid={ev.get('pid','')} {ev.get('cmdline','')[:50]}"
                     print(f"    {DIM}{ev.get('time','')}{RST}  {ecol}{label}{RST}  {ev.get('path','')[:70]}{extra}")
@@ -1822,6 +2045,137 @@ def menu_scout(logger: CleanerLogger):
                     ok("Deleted.")
             else:
                 err("Session not found.")
+            pause()
+
+        # ── [6] Pre-launch scan ──────────────────────────────
+        elif c == "6":
+            app_name = prompt("App name or exe to scan before launch: ").strip()
+            if not app_name:
+                continue
+            info(f"Scanning existing traces for '{app_name}'…")
+            try:
+                from core.sandbox import pre_launch_scan
+                result = pre_launch_scan(app_name, logger)
+                summary = result["summary"]
+                traces  = result["traces"]
+                sep()
+                print(f"  {B}Pre-launch — traces found for '{app_name}'{RST}")
+                sep("-")
+                print(f"  Files      : {Y if summary['files'] else DIM}{summary['files']}{RST}"
+                      f"   ({fmt_bytes(summary['total_size'])})")
+                print(f"  Registry   : {Y if summary['registry'] else DIM}{summary['registry']}{RST}")
+                print(f"  Services   : {summary['services']}")
+                print(f"  Tasks      : {summary['scheduled_tasks']}")
+                print(f"  Startup    : {summary['startup']}")
+                print(f"  Running    : {R if summary['processes'] else DIM}{summary['processes']}{RST}")
+                if traces.get("files"):
+                    sep("-")
+                    for item in traces["files"][:20]:
+                        print(f"  {DIM}{item['category']:<12}{RST}  {item['path'][:68]}")
+                    if len(traces["files"]) > 20:
+                        print(f"  {DIM}… and {len(traces['files'])-20} more{RST}")
+                if traces.get("registry"):
+                    sep("-")
+                    print(f"  {Y}Registry:{RST}")
+                    for item in traces["registry"][:10]:
+                        print(f"    {item['path'][:70]}")
+                sep()
+                print(f"  {DIM}Use [7] Protected Run to capture what changes when the app launches.{RST}")
+            except Exception as e:
+                err(str(e))
+            pause()
+
+        # ── [7] Protected / sandboxed run ────────────────────
+        elif c == "7":
+            exe = prompt("Path to .exe: ").strip().strip('"')
+            if not exe or not Path(exe).is_file():
+                err("File not found."); pause(); continue
+
+            watch_default = os.path.expanduser("~")
+            watch_raw = prompt(f"Watch path [{watch_default}]: ").strip() or watch_default
+            if not os.path.isdir(watch_raw):
+                err("Directory not found."); pause(); continue
+
+            block_net = prompt("Block internet while running? [Y/n]: ").strip().lower() != "n"
+            print(f"\n  {DIM}Snapshotting '{watch_raw}'… this may take a moment{RST}")
+            try:
+                from core.sandbox import launch_protected, finish_protected
+                ctx = launch_protected(exe, block_network=block_net,
+                                       watch_paths=[watch_raw], logger=logger)
+                if not ctx["ok"]:
+                    err(f"Launch failed: {ctx.get('error','')}"); pause(); continue
+
+                ok(f"Launched PID {ctx['pid']}  "
+                   f"{'[net BLOCKED]' if ctx['blocked'] else '[net allowed]'}")
+                if block_net and not ctx["blocked"]:
+                    warn(f"Firewall block failed (admin required): {ctx.get('block_err','')}")
+
+                # Also start a live scout session for maximum detail
+                app_label = Path(exe).stem
+                scout_ses = ScoutSession(f"protected_{app_label}", str(profile_path), logger)
+                scout_ses.start(watch_path=watch_raw)
+
+                print(f"\n  {Y}Monitoring live. Press Enter when done…{RST}\n")
+                stop_flag = threading.Event()
+                def _wait():
+                    try: input()
+                    except Exception: pass
+                    stop_flag.set()
+                threading.Thread(target=_wait, daemon=True).start()
+
+                import queue as _q2
+                while not stop_flag.is_set():
+                    try:
+                        ev = scout_ses.event_queue.get(timeout=0.2)
+                        etype = ev.get("type", "")
+                        col2  = TYPE_COLOR.get(etype, W)
+                        lbl   = TYPE_LABEL.get(etype, f"{etype:<7}")
+                        print(f"  {DIM}{ev['time']}{RST}  {col2}{lbl}{RST}  {ev.get('path','')[:70]}")
+                    except _q2.Empty:
+                        pass
+
+                scout_ses.stop()
+                proc = ctx.get("process")
+                if proc and proc.poll() is None:
+                    try: proc.kill()
+                    except Exception: pass
+
+                info("Computing diff…")
+                diff = finish_protected(ctx, logger)
+                s = diff["summary"]
+                sep("═")
+                print(f"  {B}Diff Report — {Path(exe).name}{RST}")
+                sep("-")
+                print(f"  {G}Added    {s['added']:>5}{RST}  {Y}Modified {s['modified']:>5}{RST}  "
+                      f"{R}Deleted  {s['deleted']:>5}{RST}  {DIM}Unchanged {s['unchanged']:>5}{RST}  "
+                      f"{Y}Registry {s['registry']:>4}{RST}")
+                sep("-")
+                for label2, subset, col2, prefix in [
+                    ("ADDED",    diff["files_added"],    G, "+"),
+                    ("MODIFIED", diff["files_modified"], Y, "~"),
+                    ("DELETED",  diff["files_deleted"],  R, "-"),
+                ]:
+                    if not subset:
+                        continue
+                    print(f"\n  {col2}{label2} ({len(subset)}){RST}")
+                    for f in subset[:15]:
+                        print(f"    {col2}{prefix}{RST}  {f}")
+                    if len(subset) > 15:
+                        print(f"    {DIM}… and {len(subset)-15} more{RST}")
+                if diff["registry"]:
+                    print(f"\n  {Y}REGISTRY ({len(diff['registry'])}){RST}")
+                    for r in diff["registry"][:10]:
+                        rcol = G if "added" in r["type"] else R if "deleted" in r["type"] else Y
+                        print(f"    {rcol}{r['type']:<16}{RST}  {r['path'][:65]}")
+                ss = scout_ses.get_summary()
+                sep("-")
+                ok(f"Scout session also saved — "
+                   f"files:{G}{ss['file_events']}{RST}  "
+                   f"reg:{Y}{ss['registry_events']}{RST}  "
+                   f"net:{C}{ss['network_events']}{RST}  "
+                   f"procs:{G}{ss['process_events']}{RST}")
+            except Exception as e:
+                err(str(e))
             pause()
 
 
@@ -3632,225 +3986,359 @@ def menu_wol(logger: CleanerLogger):
 
 def _menu_spoofer(logger: CleanerLogger):
     from core.gaming import (
-        get_mta_serial, set_mta_serial, generate_mta_serial, delete_mta_serial,
-        find_mta_processes, get_fivem_info, clear_fivem_identity, clear_fivem_full_cache,
-        _MTA_APPDATA_ROOT, _MTA_LOCAL_ROOT, _MTA_PROGDATA_ROOT,
+        find_mta_processes, kill_mta_processes,
+        read_serial_registry, write_serial_registry, generate_mta_serial,
+        backup_serial, restore_serial, serial_backup_exists,
+        spoof_serial, read_cachechecksum, delete_cachechecksum,
+        get_mta_cache_targets, clean_mta_cache,
+        reset_network, full_reset,
+        hrajeme_skimo_rp, restore_hrajeme, hrajeme_backup_exists,
+        get_hardware_info, mta_diagnostics,
+        read_gta_sa_serial,
     )
     while True:
-        header("Spoofer")
-        sep()
-        print(f"  {DIM}Changes local identifiers used by MTA and FiveM.{RST}")
-        print(f"  {DIM}Close both games before spoofing.{RST}")
-        sep()
+        header("Gaming Hub — MTA Spoofer")
 
-        # ── MTA process status ──
+        # ── running MTA processes ──
         mta_procs = find_mta_processes()
-        print(f"  {B}MTA San Andreas{RST}")
         if mta_procs:
             for p in mta_procs:
-                print(f"    {G}Running{RST}  PID {p['pid']}  {p['name']}  {DIM}{p['exe']}{RST}")
+                print(f"  {R}● Running{RST}  {p['name']}  PID {p['pid']}  {DIM}{p['exe']}{RST}")
+            print(f"  {Y}  MTA must be closed before spoofing — use [s1]/[hrp] to auto-kill{RST}")
         else:
-            print(f"    {DIM}Not detected as running{RST}")
-        for label, root in (("AppData", _MTA_APPDATA_ROOT),
-                              ("LocalApp", _MTA_LOCAL_ROOT),
-                              ("ProgramData", _MTA_PROGDATA_ROOT)):
-            exists_lbl = f"{G}✓{RST}" if root.exists() else f"{DIM}✗{RST}"
-            print(f"    {exists_lbl} {label}: {root}")
+            print(f"  {G}● MTA not running{RST}  {DIM}(safe to spoof){RST}")
 
-        # ── serial sources ──
-        serials = get_mta_serial(logger)
-        if serials:
-            sep("-")
-            for source, serial in serials.items():
-            # shorten long paths for display
-                label = source
-                if len(label) > 60:
-                    label = "…" + label[-57:]
-                print(f"    {C}{serial}{RST}  {DIM}({label}){RST}")
-        else:
-            sep("-")
-            print(f"    {Y}No serial found in config files or registry.{RST}")
-            print(f"    {DIM}Use [mp] to pick the MTA process and scan its directory,{RST}")
-            print(f"    {DIM}or use [m1]/[m2] to write a new serial now.{RST}")
-
+        # ── current MTA serial ──
+        serials = read_serial_registry()
         sep("-")
-        print(f"  {C}[mp]{RST}  Pick MTA process → scan its directory for config files")
-        print(f"  {C}[m1]{RST}  Generate & apply random serial")
-        print(f"  {C}[m2]{RST}  Enter custom serial")
-        print(f"  {C}[m3]{RST}  Delete serial (MTA regenerates from hardware on next launch)")
-        sep()
+        print(f"  {B}MTA Serial{RST}")
+        for label, val in serials.items():
+            colour = C if val != "(not found)" else DIM
+            marker = f"{G}✓{RST}" if val != "(not found)" else f"{DIM}–{RST}"
+            print(f"    {marker} {label:<18} {colour}{val}{RST}")
 
-        fivem = get_fivem_info()
-        print(f"  {B}FiveM / CitizenFX{RST}")
-        if fivem["installed"]:
-            ros_status = f"{G}exists{RST}" if fivem["ros_id_exists"] else f"{DIM}not found{RST}"
-            print(f"    FiveM dir  : {fivem['app_dir']}")
-            print(f"    CitizenFX  : {fivem['citfx_dir']}")
-            print(f"    ros_id.dat : {ros_status}")
-            print(f"    Cache dirs : {len(fivem['cache_dirs'])} found")
-            print(f"    ID files   : {len(fivem['id_files'])} stored")
-        else:
-            print(f"    {DIM}FiveM not found at %LOCALAPPDATA%\\FiveM{RST}")
+        # ── GTA:SA CD key ──
+        gta_serials = read_gta_sa_serial()
+        if any(v != "(not found)" for v in gta_serials.values()):
+            print(f"  {B}GTA:SA CD Key{RST}")
+            for label, val in gta_serials.items():
+                colour = C if val != "(not found)" else DIM
+                print(f"    {DIM}{label:<30}{RST}  {colour}{val}{RST}")
+
+        # ── cachechecksum ──
+        checksums = read_cachechecksum()
+        if checksums:
+            print(f"  {B}Cachechecksum{RST}  {DIM}(source of serial){RST}")
+            for ver, val in checksums.items():
+                print(f"    {DIM}{ver:<6}{RST}  {val[:40]}…")
+
+        if serial_backup_exists():
+            print(f"    {Y}[backup on disk — restore available]{RST}")
+
+        # ── cache preview ──
+        cache_targets = get_mta_cache_targets()
         sep("-")
-        print(f"  {C}[f1]{RST} Clear FiveM identity tokens  (ros_id, auth tokens, game-storage)")
-        print(f"  {C}[f2]{RST} Full FiveM cache wipe         (identity + all server resource cache)")
-        sep()
-        print(f"  {C}[0]{RST} {t('menu.back')}")
+        print(f"  {B}Cache / Logs{RST}  {DIM}{len(cache_targets)} targets{RST}")
+        sep("-")
+
+        print(f"  {C}[s1]{RST}  Spoof serial      — new cachechecksum + Serial in registry")
+        print(f"  {C}[s2]{RST}  Restore serial     — write original back from backup")
+        print(f"  {C}[s3]{RST}  Custom serial      — enter your own 32-char hex")
+        print(f"  {C}[s4]{RST}  Delete checksum    — remove cachechecksum (force MTA regen)")
+        print(f"  {C}[c1]{RST}  Clean MTA cache    — logs, resource-cache, report dirs")
+        print(f"  {C}[n1]{RST}  Flush DNS          — ipconfig /flushdns")
+        print(f"  {C}[n2]{RST}  Full network reset — DNS + Winsock + TCP/IP  {Y}[admin]{RST}")
+        print(f"  {C}[all]{RST} All-in-one         — new serial + cache + DNS flush")
+        sep("-")
+        print(f"  {G}{B}[hrp]{RST} {B}HrajemeSkimoRP{RST}   — full identity reset: HWID + MAC + serial + cache + network  {Y}[admin]{RST}")
+        print(f"  {C}[hrr]{RST} Restore HrajemeSkimoRP backup")
+        sep("-")
+        print(f"  {C}[md]{RST}  Diagnostics        — full registry + cache dump")
+        print(f"  {C}[0]{RST}   {t('menu.back')}")
         sep()
         cmd = prompt().strip().lower()
+
         if cmd == "0":
             break
 
-        elif cmd == "mp":
-            # Process picker — find running MTA processes and scan their directories
-            import psutil
-            from core.gaming import _find_coreconfig_files, get_mta_serial_from_config
-            all_procs = []
-            try:
-                for proc in psutil.process_iter(["pid", "name", "exe"]):
-                    try:
-                        all_procs.append(proc.info)
-                    except Exception:
-                        pass
-            except Exception:
-                pass
-            sep()
-            if not all_procs:
-                err("Could not list processes (psutil missing?)."); pause(); continue
-            # Show all processes, let user type a name or number to filter
-            print(f"  Enter part of a process name to filter (e.g. 'mta', 'gta'):")
-            q = prompt("  Filter: ").strip().lower()
-            matched = [p for p in all_procs
-                       if q and q in (p.get("name") or "").lower()
-                       or q and q in (p.get("exe") or "").lower()]
-            if not matched:
-                warn(f"No processes matching '{q}'."); pause(); continue
-            sep("-")
-            print(f"  {'#':>3}  {'PID':>6}  {'Name':<30}  Path")
-            sep("-")
-            for i, p in enumerate(matched):
-                print(f"  {i+1:>3}  {p['pid']:>6}  {(p.get('name') or '')[:30]:<30}  {p.get('exe') or ''}")
-            sep()
-            choice = prompt("Select process number: ").strip()
-            try:
-                idx = int(choice) - 1
-                selected = matched[idx]
-            except (ValueError, IndexError):
-                err("Invalid selection."); pause(); continue
-
-            exe_path = selected.get("exe") or ""
-            if not exe_path:
-                err("Process has no exe path."); pause(); continue
-
-            install_dir = str(Path(exe_path).parent)
-            ok(f"Selected: {selected.get('name')} — {install_dir}")
-
-            # Scan the install directory and common config locations
-            import re as _re
-            serial_re = _re.compile(r"<serial>([A-Fa-f0-9]{32})</serial>", _re.IGNORECASE)
-            found_configs: list[tuple[Path, str]] = []
-
-            search_dirs = [Path(install_dir)]
-            # Walk up from install dir to catch parent MTA data dirs
-            p = Path(install_dir).parent
-            for _ in range(4):
-                if "mta san andreas" in p.name.lower():
-                    search_dirs.append(p)
-                p = p.parent
-                if p == p.parent:
-                    break
-            # Add all known MTA data roots
-            for root in (_MTA_APPDATA_ROOT, _MTA_LOCAL_ROOT, _MTA_PROGDATA_ROOT):
-                if root.exists() and root not in search_dirs:
-                    search_dirs.append(root)
-
-            for sdir in search_dirs:
-                for cfg in sdir.rglob("coreconfig.xml"):
-                    try:
-                        text = cfg.read_text(encoding="utf-8", errors="replace")
-                        m = serial_re.search(text)
-                        serial_val = m.group(1).upper() if m else "(not set)"
-                        found_configs.append((cfg, serial_val))
-                    except OSError:
-                        pass
-
-            if found_configs:
-                sep("-")
-                print(f"  Found {len(found_configs)} config file(s):")
-                for cfg_path, serial_val in found_configs:
-                    print(f"    {C}{serial_val}{RST}  {DIM}{cfg_path}{RST}")
-                ok("Config files discovered. Use [m1] or [m2] to apply a new serial.")
+        # ── serial spoof via cachechecksum ──
+        elif cmd == "s1":
+            result = spoof_serial(logger)
+            print()
+            # killed processes
+            if result["killed"]:
+                for p in result["killed"]:
+                    ok(f"Killed  {p['name']}  PID {p['pid']}")
             else:
-                warn("No coreconfig.xml found in any searched directory.")
-                for sd in search_dirs:
-                    print(f"  Searched: {sd}")
+                print(f"  {DIM}No MTA/GTA processes were running{RST}")
+            print()
+            # old → new serial comparison
+            old_s = result["old_serials"]
+            new_s = result["serial"]
+            print(f"  {B}Serial change:{RST}")
+            for label, old_val in old_s.items():
+                old_col = DIM if old_val == "(not found)" else Y
+                print(f"    {label:<18}  {old_col}{old_val}{RST}  →  {G}{new_s}{RST}")
+            print()
+            ok(f"Checksum : {DIM}{result['checksum']}{RST}")
+            print()
+            for label, wrote in result["serial_results"].items():
+                if wrote: ok(f"Written   {label}")
+                else:     err(f"Failed    {label}  (need admin for HKLM)")
+            for ver, wrote in result["checksum_results"].items():
+                if wrote: ok(f"Checksum  {ver}")
+                else:     err(f"Checksum failed: {ver}")
+            warn("Launch MTA — new serial takes effect immediately.")
             pause()
 
-        elif cmd == "m1":
-            new_serial = generate_mta_serial()
-            warn(f"New serial will be: {C}{new_serial}{RST}")
+        elif cmd == "s2":
+            if not serial_backup_exists():
+                err("No backup found — run [s1] first."); pause(); continue
+            warn("Restores original serial to all registry locations.")
             if prompt(t("prompt.type_yes")).upper() not in ("YES", "ANO"):
                 continue
-            results = set_mta_serial(new_serial, logger)
-            written = sum(1 for v in results.values() if v)
-            if written:
-                ok(f"Serial applied to {written} location(s): {new_serial}")
+            result = restore_serial(logger)
+            if result["ok"]:
+                for line in result["restored"]:
+                    ok(line)
+                warn("Close MTA and reopen — original serial restored.")
             else:
-                err("No locations found to update — try [mp] first to locate config files.")
+                err(f"Restore failed: {result.get('error','')} {'; '.join(result.get('errors',[]))}")
             pause()
 
-        elif cmd == "m2":
-            custom = prompt("Enter 32-char hex serial (or Enter to cancel): ").strip().upper()
-            if not custom:
-                continue
+        elif cmd == "s3":
+            custom = prompt("Enter 32 hex chars (0-9, A-F): ").strip().upper()
             if len(custom) != 32 or not all(c in "0123456789ABCDEF" for c in custom):
-                err("Serial must be exactly 32 hexadecimal characters."); pause(); continue
-            results = set_mta_serial(custom, logger)
-            written = sum(1 for v in results.values() if v)
-            if written:
-                ok(f"Serial applied to {written} location(s): {custom}")
-            else:
-                err("No locations found to update — try [mp] first to locate config files.")
+                err("Invalid — must be exactly 32 hex characters."); pause(); continue
+            backup_serial(logger)
+            results = write_serial_registry(custom, logger)
+            for label, wrote in results.items():
+                if wrote: ok(f"Written to {label}")
+                else:     err(f"Failed: {label}")
+            warn("Close MTA and reopen — serial takes effect on next launch.")
             pause()
 
-        elif cmd == "m3":
-            warn("MTA will generate a new serial from your hardware fingerprint on next launch.")
+        elif cmd == "s4":
+            warn("Deletes cachechecksum — MTA will regenerate it on next launch.")
             if prompt(t("prompt.type_yes")).upper() not in ("YES", "ANO"):
                 continue
-            results = delete_mta_serial(logger)
-            deleted = sum(1 for v in results.values() if v)
+            deleted = delete_cachechecksum(logger)
             if deleted:
-                ok(f"Serial cleared in {deleted} location(s).")
+                ok(f"Deleted from: {', '.join(deleted)}")
             else:
-                err("Nothing found to delete.")
+                info("No cachechecksum entries found.")
             pause()
 
-        elif cmd == "f1":
-            if not fivem["installed"]:
-                err("FiveM not found."); pause(); continue
-            warn("This removes stored CitizenFX identity tokens and game-storage cache.")
-            warn("FiveM will regenerate new identifiers on next launch.")
-            if prompt(t("prompt.type_yes")).upper() not in ("YES", "ANO"):
+        # ── cache ──
+        elif cmd == "c1":
+            if not cache_targets:
+                info("No cache directories found."); pause(); continue
+            print(f"\n  {len(cache_targets)} target(s):")
+            for desc, path in cache_targets:
+                print(f"    {DIM}{desc}  {path}{RST}")
+            if prompt(t("prompt.type_yes_confirm")).upper() not in ("YES", "ANO"):
                 continue
-            result = clear_fivem_identity(logger)
-            ok(f"Done — {result['removed_files']} file(s) removed, "
-               f"{result['removed_dirs']} cache dir(s) cleared.")
-            if result["errors"]:
-                warn(f"{len(result['errors'])} error(s) — some files may have been in use.")
+            result = clean_mta_cache(logger)
+            ok(f"Cleaned {result['cleaned']}  skipped {result['skipped']}  errors {len(result['errors'])}")
+            for e_msg in result["errors"][:5]:
+                err(e_msg)
             pause()
 
-        elif cmd == "f2":
-            if not fivem["installed"]:
-                err("FiveM not found."); pause(); continue
-            warn("Full cache wipe — identity tokens AND all downloaded server resources.")
-            warn("FiveM will re-download server resources on next connection.")
+        # ── network ──
+        elif cmd == "n1":
+            for desc, success, out in reset_network({"dns": True}, logger):
+                ok(desc) if success else err(f"{desc}: {out}")
+            pause()
+
+        elif cmd == "n2":
+            warn("Winsock and TCP/IP reset require admin and a reboot to complete.")
             if prompt(t("prompt.type_yes")).upper() not in ("YES", "ANO"):
                 continue
-            result = clear_fivem_full_cache(logger)
-            ok(f"Done — {result['removed_files']} file(s) removed, "
-               f"{result['removed_dirs']} cache dir(s) cleared.")
-            if result["errors"]:
-                warn(f"{len(result['errors'])} error(s) — some files may have been in use.")
+            for desc, success, out in reset_network({"dns": True, "winsock": True, "tcpip": True}, logger):
+                ok(desc) if success else err(f"{desc}: {out}")
+            warn("Reboot recommended to complete the reset.")
+            pause()
+
+        # ── all-in-one ──
+        elif cmd == "all":
+            warn("New serial (via cachechecksum) + clean cache + flush DNS.")
+            if prompt(t("prompt.type_yes_confirm")).upper() not in ("YES", "ANO"):
+                continue
+            result = full_reset(logger)
+            ok(f"Serial: {C}{result['serial']}{RST}")
+            c = result["cache"]
+            ok(f"Cache : {c['cleaned']} cleaned, {c['skipped']} skipped")
+            for desc, success, _ in result["network"]:
+                ok(desc) if success else err(desc)
+            warn("Close MTA and reopen.")
+            pause()
+
+        # ── HrajemeSkimoRP ──
+        elif cmd == "hrp":
+            clr()
+            print(f"\n  {G}{B}HrajemeSkimoRP — Full Identity Reset{RST}\n")
+            print(f"  {Y}Will change via WMI + registry (wmi + pywin32 + winreg, no kernel driver):{RST}")
+            print(f"    {C}OS identifiers{RST}")
+            print(f"      • MachineGuid     HKLM\\SOFTWARE\\Microsoft\\Cryptography")
+            print(f"      • HwProfileGuid   hardware profile GUID")
+            print(f"      • MachineId       SQMClient telemetry GUID")
+            print(f"      • ProductId       Windows product ID")
+            print(f"    {C}System / BIOS info{RST}")
+            print(f"      • SystemManufacturer, SystemProductName")
+            print(f"      • BIOSVendor, BIOSVersion, BIOSReleaseDate")
+            print(f"      • SystemFamily, SystemVersion, SystemSKU")
+            print(f"    {C}Network{RST}")
+            print(f"      • MAC addresses   all NIC driver keys (NetworkAddress)")
+            print(f"    {C}Display{RST}")
+            print(f"      • GPU DriverDesc  display driver description strings")
+            print(f"    {C}Identifiers{RST}")
+            print(f"      • ComputerName    registry + active key")
+            print(f"      • DiagTrack device ID, provisioning client ID")
+            print(f"    {C}GTA:SA CD key{RST}")
+            print(f"      • GTA:SA Serial   Rockstar Games registry key")
+            print(f"    {C}MTA serial{RST}")
+            print(f"      • cachechecksum   MTA serial source")
+            print(f"      • Serial          MTA \\Common\\Serial all locations")
+            print(f"    {C}Cleanup{RST}")
+            print(f"      • MTA config + cache + logs, DNS flush, Winsock reset")
+            print()
+            print(f"  {Y}All originals backed up → mta_hwid_backup.json{RST}")
+            print(f"  {R}Requires admin. Reboot recommended after to apply all changes.{RST}")
+            sep()
+            if prompt(t("prompt.type_yes_confirm")).upper() not in ("YES", "ANO"):
+                continue
+            print()
+            info("Running — this may take a few seconds…")
+            result = hrajeme_skimo_rp(logger)
+            print()
+
+            # killed processes
+            if result.get("killed"):
+                for p in result["killed"]:
+                    ok(f"Killed    {p['name']}  PID {p['pid']}")
+            else:
+                print(f"  {DIM}No MTA/GTA processes were running{RST}")
+            print()
+
+            if result.get("os_ids"):
+                ok(f"OS IDs:     {', '.join(result['os_ids'].keys())}")
+                for k, v in result["os_ids"].items():
+                    print(f"    {k}: {C}{v}{RST}")
+
+            if result.get("bios_info"):
+                ok(f"BIOS/System: {', '.join(result['bios_info'].keys())}")
+                for k, v in result["bios_info"].items():
+                    print(f"    {k}: {C}{v}{RST}")
+
+            if result.get("computer"):
+                ok(f"ComputerName: {C}{result['computer']}{RST}")
+
+            if result.get("gpu"):
+                ok(f"GPU:        {len(result['gpu'])} driver key(s) changed")
+
+            if result.get("mac"):
+                ok(f"MAC addr:   {len(result['mac'])} adapter(s)")
+                for sub, mac in result["mac"].items():
+                    print(f"    NIC {sub}: {C}{mac}{RST}")
+
+            if result.get("install_ids"):
+                ok(f"Install IDs: {', '.join(result['install_ids'].keys())}")
+
+            gta = result.get("gta_sa", {})
+            if gta.get("changed"):
+                ok(f"GTA:SA key: {C}{gta['new']}{RST}")
+
+            if result.get("serial", {}).get("serial"):
+                ok(f"MTA serial: {C}{result['serial']['serial']}{RST}")
+
+            c = result.get("cache", {})
+            if c:
+                ok(f"Cache:      {c.get('cleaned',0)} cleaned, {c.get('skipped',0)} skipped")
+
+            for desc, success, _ in result.get("network", []):
+                ok(desc) if success else err(desc)
+
+            if result.get("errors"):
+                warn(f"{len(result['errors'])} error(s):")
+                for e_msg in result["errors"][:5]:
+                    err(e_msg)
+            print()
+            warn("Close MTA and reopen — serial takes effect on next launch.")
+            warn("Reboot recommended to apply MAC + computer name changes.")
+            pause()
+
+        elif cmd == "hrr":
+            if not hrajeme_backup_exists():
+                err("No HrajemeSkimoRP backup found — run [hrp] first."); pause(); continue
+            warn("Restores all original values: HWID, MAC addresses, MTA serial.")
+            if prompt(t("prompt.type_yes")).upper() not in ("YES", "ANO"):
+                continue
+            result = restore_hrajeme(logger)
+            if result["ok"]:
+                for line in result["restored"]:
+                    ok(line)
+                warn("Reboot recommended to apply MAC address changes.")
+            else:
+                err(f"Restore failed: {result.get('error','')} {'; '.join(result.get('errors',[]))}")
+            pause()
+
+        # ── diagnostics ──
+        elif cmd == "md":
+            info("Running MTA diagnostic scan (WMI + registry)…")
+            diag = mta_diagnostics()
+            sep()
+
+            # Hardware info via WMI
+            hw = diag.get("hardware", {})
+            if "error" in hw:
+                print(f"  {B}Hardware (WMI){RST}  {Y}{hw['error']}{RST}")
+            else:
+                print(f"  {B}Hardware (WMI){RST}")
+                if hw.get("bios"):
+                    b = hw["bios"]
+                    print(f"    BIOS   {b.get('manufacturer','')}  ver {b.get('version','')}  s/n {b.get('serial','')}")
+                if hw.get("motherboard"):
+                    m = hw["motherboard"]
+                    print(f"    Board  {m.get('manufacturer','')} {m.get('product','')}  s/n {m.get('serial','')}")
+                if hw.get("cpu"):
+                    c2 = hw["cpu"]
+                    print(f"    CPU    {c2.get('name','')}  ID {c2.get('processor_id','')}")
+                for disk in hw.get("disks", []):
+                    print(f"    Disk   {disk.get('model','')}  s/n {C}{disk.get('serial','')}{RST}  {disk.get('size_gb','')} GB")
+                for gpu in hw.get("gpus", []):
+                    print(f"    GPU    {gpu.get('name','')}  drv {gpu.get('driver_version','')}")
+                if hw.get("system_product"):
+                    sp = hw["system_product"]
+                    print(f"    UUID   {C}{sp.get('uuid','')}{RST}")
+                for nic in hw.get("network_adapters", []):
+                    print(f"    NIC    {nic.get('name','')}  {C}{nic.get('mac_address','')}{RST}")
+
+            print(f"\n  {B}MTA Serial{RST}")
+            for label, val in diag["serial_registry"].items():
+                print(f"    {label}: {C}{val}{RST}")
+
+            print(f"\n  {B}Cachechecksum{RST}")
+            if diag["cachechecksum"]:
+                for ver, val in diag["cachechecksum"].items():
+                    print(f"    {ver}: {val}")
+            else:
+                print(f"    {DIM}(not found){RST}")
+
+            print(f"\n  {B}Registry tree{RST}")
+            for path, data in diag["registry"].items():
+                if data == "(not found)":
+                    print(f"    {DIM}{path}: not found{RST}")
+                else:
+                    print(f"    {C}{path}{RST}")
+                    for vk, vv in data.get("_values", {}).items():
+                        print(f"      {vk} = {vv}")
+                    subs = list(data.get("_subkeys", {}).keys())
+                    if subs:
+                        print(f"      subkeys: {', '.join(subs)}")
+
+            print(f"\n  {B}Cache targets{RST}")
+            for desc, path in diag.get("cache_targets", []):
+                print(f"    {desc}  {DIM}{path}{RST}")
             pause()
 
         else:
@@ -3859,6 +4347,730 @@ def _menu_spoofer(logger: CleanerLogger):
 
 def menu_gaming(logger: CleanerLogger):
     _menu_spoofer(logger)
+
+
+# ── 45. MTA LUA EXECUTOR ─────────────────────────────────────
+
+def _lua_editor(initial_code: str = "") -> str | None:
+    """
+    Interactive terminal Lua code editor.
+    Returns the final code string, or None if the user cancels.
+    Commands:
+      <any text>       — append line
+      .e <n> <text>    — replace line n
+      .d <n>           — delete line n
+      .ins <n>         — insert line before n (prompts for content)
+      .clear           — remove all lines
+      .done            — finish and return code
+      .cancel          — discard and return None
+    """
+    lines: list[str] = initial_code.splitlines() if initial_code.strip() else []
+
+    def _draw():
+        clr()
+        print(f"{G}{B}  ┌─ Lua Editor {'─' * 42}┐{RST}")
+        if lines:
+            for i, ln in enumerate(lines, 1):
+                num = f"{i:>3}"
+                print(f"{G}{B}  │{RST} {C}{num}{RST}  {ln}")
+        else:
+            print(f"{G}{B}  │{RST}  {DIM}(empty){RST}")
+        print(f"{G}{B}  └{'─' * 48}┘{RST}")
+        sep()
+        print(f"  {DIM}Type Lua code to append  │  .e <n> <text>  edit line"
+              f"  │  .d <n>  delete{RST}")
+        print(f"  {DIM}.ins <n>  insert before n  │  .clear  clear all"
+              f"  │  .done  finish  │  .cancel  quit{RST}")
+        sep()
+
+    while True:
+        _draw()
+        try:
+            raw = input(f"  {Y}lua>{RST} ").rstrip("\n")
+        except (KeyboardInterrupt, EOFError):
+            return None
+
+        stripped = raw.strip()
+
+        if stripped == ".done":
+            return "\n".join(lines)
+
+        if stripped == ".cancel":
+            return None
+
+        if stripped == ".clear":
+            lines.clear()
+            continue
+
+        if stripped.startswith(".e "):
+            rest = stripped[3:].strip()
+            parts = rest.split(" ", 1)
+            try:
+                n = int(parts[0]) - 1
+                if not (0 <= n < len(lines)):
+                    raise ValueError
+                lines[n] = parts[1] if len(parts) > 1 else ""
+            except (ValueError, IndexError):
+                pass
+            continue
+
+        if stripped.startswith(".d "):
+            try:
+                n = int(stripped[3:].strip()) - 1
+                if 0 <= n < len(lines):
+                    lines.pop(n)
+            except ValueError:
+                pass
+            continue
+
+        if stripped.startswith(".ins "):
+            try:
+                n = int(stripped[5:].strip()) - 1
+                if not (0 <= n <= len(lines)):
+                    raise ValueError
+                _draw()
+                try:
+                    new_line = input(f"  {Y}insert>{RST} ").rstrip("\n")
+                except (KeyboardInterrupt, EOFError):
+                    new_line = ""
+                lines.insert(n, new_line)
+            except ValueError:
+                pass
+            continue
+
+        # Default: append line (preserve original indentation)
+        lines.append(raw)
+
+
+def menu_executor(logger: CleanerLogger):
+    from core import executor as _exc
+
+    while True:
+        header("MTA Lua Executor")
+
+        # Detect resources dir
+        res_dir = _exc.find_resources_dir(logger)
+        if res_dir:
+            print(f"  {G}Resources dir:{RST} {res_dir}")
+        else:
+            print(f"  {Y}Resources dir not found — enter manually below{RST}")
+
+        saved = _exc.list_saved_scripts()
+        if saved:
+            print(f"  {DIM}Saved scripts: {', '.join(s['name'] for s in saved)}{RST}")
+
+        sep()
+        print(f"  {C}[1]{RST} Write / paste Lua code & deploy")
+        print(f"  {C}[2]{RST} Load saved script & deploy")
+        print(f"  {C}[3]{RST} Save current code to file")
+        print(f"  {C}[4]{RST} List / delete saved scripts")
+        print(f"  {C}[5]{RST} Set resources directory")
+        print(f"  {C}[0]{RST} Back")
+        sep()
+        print(f"  {DIM}After deploy: open MTA F8 console and type  start sc_executor{RST}")
+        sep()
+
+        c = prompt()
+        if c == "0":
+            break
+
+        elif c == "1":
+            code = _lua_editor()
+            if code is None or not code.strip():
+                err("No code entered.")
+                pause()
+                continue
+
+            # Choose script type
+            print(f"\n  {C}[1]{RST} Client  {C}[2]{RST} Server  {C}[3]{RST} Both")
+            st_choice = prompt("Type (1/2/3): ")
+            script_type = {"1": "client", "2": "server", "3": "both"}.get(st_choice, "both")
+
+            # Resources dir
+            if not res_dir:
+                res_dir = prompt("Resources directory path: ")
+
+            if not res_dir:
+                err("No resources directory.")
+                pause()
+                continue
+
+            result = _exc.deploy_script(code, script_type, res_dir, logger)
+            ok(f"Deployed to: {result['path']}")
+            print(f"  client.lua written: {result['client_written']}")
+            print(f"  server.lua written: {result['server_written']}")
+            print(f"\n  {Y}In MTA F8 console type:{RST}  {B}start sc_executor{RST}")
+            pause()
+
+        elif c == "2":
+            saved = _exc.list_saved_scripts()
+            if not saved:
+                err("No saved scripts.")
+                pause()
+                continue
+
+            header("Load Saved Script")
+            for i, s in enumerate(saved, 1):
+                print(f"  {C}[{i}]{RST} {s['name']}  {DIM}({s['size']} B) — {s['preview']}{RST}")
+            sep()
+            choice2 = prompt("Script number: ")
+            try:
+                idx = int(choice2) - 1
+                script = saved[idx]
+            except (ValueError, IndexError):
+                err("Invalid selection.")
+                pause()
+                continue
+
+            # Open editor pre-filled with saved code so user can edit before deploy
+            code = _lua_editor(script["code"])
+            if code is None or not code.strip():
+                err("Cancelled.")
+                pause()
+                continue
+
+            print(f"\n  {C}[1]{RST} Client  {C}[2]{RST} Server  {C}[3]{RST} Both")
+            st_choice = prompt("Type (1/2/3): ")
+            script_type = {"1": "client", "2": "server", "3": "both"}.get(st_choice, "both")
+
+            if not res_dir:
+                res_dir = prompt("Resources directory path: ")
+
+            if not res_dir:
+                err("No resources directory.")
+                pause()
+                continue
+
+            result = _exc.deploy_script(code, script_type, res_dir, logger)
+            ok(f"Deployed '{script['name']}' to: {result['path']}")
+            print(f"\n  {Y}In MTA F8 console type:{RST}  {B}start sc_executor{RST}")
+            pause()
+
+        elif c == "3":
+            code = _lua_editor()
+            if code is None or not code.strip():
+                err("Cancelled.")
+                pause()
+                continue
+
+            name = prompt("Script name (letters/numbers/- only): ")
+            if _exc.save_script(name, code):
+                ok(f"Saved as '{name}.lua'")
+            else:
+                err("Failed to save. Check the name.")
+            pause()
+
+        elif c == "4":
+            saved = _exc.list_saved_scripts()
+            if not saved:
+                err("No saved scripts.")
+                pause()
+                continue
+
+            header("Saved Scripts")
+            for i, s in enumerate(saved, 1):
+                print(f"  {C}[{i}]{RST} {s['name']}  {DIM}{s['size']} B — {s['preview']}{RST}")
+            sep()
+            print(f"  {DIM}Enter number to delete, or 0 to go back{RST}")
+            choice2 = prompt()
+            if choice2 == "0":
+                continue
+            try:
+                idx = int(choice2) - 1
+                script = saved[idx]
+            except (ValueError, IndexError):
+                err("Invalid selection.")
+                pause()
+                continue
+
+            if _exc.delete_script(script["name"]):
+                ok(f"Deleted '{script['name']}'")
+            else:
+                err("Failed.")
+            pause()
+
+        elif c == "5":
+            new_dir = prompt("Resources directory path: ")
+            if new_dir and Path(new_dir).exists():
+                res_dir = new_dir
+                ok(f"Set to: {res_dir}")
+            else:
+                err("Path does not exist.")
+            pause()
+
+
+# ── 49. APP MANAGER ─────────────────────────────────────────
+
+def menu_appmgr(logger: CleanerLogger):
+    from core import appmgr as _am
+
+    while True:
+        header(t("menu.app_mgr"))
+        info("Loading running apps…")
+        apps = _am.list_user_apps(logger)
+        sep()
+
+        if not apps:
+            warn("No user apps found.")
+        else:
+            print(f"  {'#':>3}  {'Blk':<4}  {'Name':<28}  {'CPU':>5}  {'RAM':>8}  {'Conn':>4}  Exe")
+            sep("-")
+            for i, a in enumerate(apps, 1):
+                blk_lbl = f"{R}[B]{RST}" if a["is_blocked"] else f"{DIM}   {RST}"
+                conn_col = R if a["active_conns"] > 0 else DIM
+                print(f"  {i:>3}  {blk_lbl}  {a['name'][:28]:<28}  "
+                      f"{a['cpu_percent']:>4.1f}%  "
+                      f"{fmt_bytes(a['memory_bytes']):>8}  "
+                      f"{conn_col}{a['active_conns']:>4}{RST}  "
+                      f"{DIM}{a['exe'][:40]}{RST}")
+            print(f"\n  {len(apps)} apps  │  "
+                  f"{sum(1 for a in apps if a['is_blocked'])} blocked  │  "
+                  f"{sum(a['active_conns'] for a in apps)} active connections")
+
+        sep()
+        print(f"  {C}[k <n>]{RST}  Kill app by number")
+        print(f"  {C}[b <n>]{RST}  Block internet  {DIM}(outbound firewall rule){RST}  {Y}[admin]{RST}")
+        print(f"  {C}[u <n>]{RST}  Unblock internet")
+        print(f"  {C}[ba]   {RST}  Block ALL apps that have active connections  {Y}[admin]{RST}")
+        print(f"  {C}[r]    {RST}  Refresh")
+        print(f"  {C}[0]    {RST}  {t('menu.back')}")
+        sep()
+        cmd = prompt().strip().lower()
+
+        if cmd == "0":
+            break
+
+        elif cmd == "r":
+            continue
+
+        elif cmd == "ba":
+            active = [a for a in apps if a["active_conns"] > 0 and not a["is_blocked"]]
+            if not active:
+                info("No unblocked apps with active connections."); pause(); continue
+            warn(f"Block internet for {len(active)} app(s)?")
+            print("  " + ", ".join(a["name"] for a in active))
+            if prompt(t("prompt.type_yes")).upper() not in ("YES", "ANO"):
+                continue
+            for a in active:
+                res = _am.block_app_internet(a["exe"], logger)
+                ok(f"Blocked {a['name']}") if res["ok"] else err(f"Failed {a['name']}: {res['error']}")
+            pause()
+
+        elif cmd.startswith("k "):
+            try:
+                idx = int(cmd[2:].strip()) - 1
+                a = apps[idx]
+            except (ValueError, IndexError):
+                err("Invalid number."); pause(); continue
+            warn(f"Kill '{a['name']}' (PID {a['pid']})?")
+            if prompt(t("prompt.type_yes")).upper() not in ("YES", "ANO"):
+                continue
+            ok(f"Killed.") if _am.kill_app(a["pid"], logger) else err("Failed.")
+            pause()
+
+        elif cmd.startswith("b "):
+            try:
+                idx = int(cmd[2:].strip()) - 1
+                a = apps[idx]
+            except (ValueError, IndexError):
+                err("Invalid number."); pause(); continue
+            if a["is_blocked"]:
+                warn(f"'{a['name']}' is already blocked."); pause(); continue
+            res = _am.block_app_internet(a["exe"], logger)
+            if res["ok"]:
+                ok(f"Blocked outbound internet for '{a['name']}'.")
+                print(f"  {DIM}Rule: {res['rule_name']}{RST}")
+            else:
+                err(f"Failed: {res['error']} (requires admin)")
+            pause()
+
+        elif cmd.startswith("u "):
+            try:
+                idx = int(cmd[2:].strip()) - 1
+                a = apps[idx]
+            except (ValueError, IndexError):
+                err("Invalid number."); pause(); continue
+            res = _am.unblock_app_internet(a["exe"], logger)
+            ok(f"Unblocked '{a['name']}'.") if res["ok"] else err("Failed — rule may not exist.")
+            pause()
+
+        else:
+            err(t("app.unknown_option"))
+
+
+# ── 46. PACKAGE MANAGER ─────────────────────────────────────
+
+def menu_pkgmgr(logger: CleanerLogger):
+    from core import pkgmgr as _pkg
+
+    wg = _pkg.winget_available()
+    ch = _pkg.choco_available()
+
+    while True:
+        header(t("menu.pkg_mgr"))
+        wg_lbl = f"{G}available{RST}" if wg else f"{R}not found{RST}"
+        ch_lbl = f"{G}available{RST}" if ch else f"{R}not found{RST}"
+        print(f"  winget: {wg_lbl}   Chocolatey: {ch_lbl}")
+        sep()
+        print(f"  {C}[1]{RST} List installed packages")
+        print(f"  {C}[2]{RST} Search packages")
+        print(f"  {C}[3]{RST} Install a package")
+        print(f"  {C}[4]{RST} Uninstall a package")
+        print(f"  {C}[5]{RST} Show upgradable  {DIM}(winget){RST}")
+        print(f"  {C}[6]{RST} Upgrade all  {DIM}(winget){RST}")
+        print(f"  {C}[7]{RST} Upgrade all  {DIM}(choco){RST}")
+        print(f"  {C}[0]{RST} {t('menu.back')}")
+        sep()
+        c = prompt()
+
+        if c == "0":
+            break
+
+        elif c == "1":
+            backend = _pick_backend(wg, ch)
+            if not backend:
+                err("No package manager found."); pause(); continue
+            info("Loading installed packages…")
+            pkgs = _pkg.winget_list(logger) if backend == "winget" else _pkg.choco_list(logger)
+            sep()
+            if not pkgs:
+                warn("No packages found.")
+            else:
+                print(f"  {'#':>4}  {'Name':<35}  {'Version':<16}  {'Id'}")
+                sep("-")
+                for i, p in enumerate(pkgs, 1):
+                    print(f"  {i:>4}  {p.get('Name','')[:35]:<35}  {p.get('Version','')[:16]:<16}  {p.get('Id','')}")
+                print(f"\n  Total: {len(pkgs)}")
+            pause()
+
+        elif c == "2":
+            q = prompt("Search query: ").strip()
+            if not q:
+                continue
+            backend = _pick_backend(wg, ch)
+            if not backend:
+                err("No package manager found."); pause(); continue
+            info(f"Searching '{q}'…")
+            pkgs = _pkg.winget_search(q, logger) if backend == "winget" else _pkg.choco_search(q, logger)
+            sep()
+            if not pkgs:
+                warn("No results.")
+            else:
+                print(f"  {'#':>4}  {'Name':<35}  {'Version':<16}  {'Id'}")
+                sep("-")
+                for i, p in enumerate(pkgs, 1):
+                    print(f"  {i:>4}  {p.get('Name','')[:35]:<35}  {p.get('Version','')[:16]:<16}  {p.get('Id','')}")
+            pause()
+
+        elif c == "3":
+            pkg_id = prompt("Package ID (e.g. Notepad++.Notepad++): ").strip()
+            if not pkg_id:
+                continue
+            backend = _pick_backend(wg, ch)
+            if not backend:
+                err("No package manager found."); pause(); continue
+            info(f"Installing '{pkg_id}' via {backend}… (this may take a minute)")
+            result = _pkg.winget_install(pkg_id, logger) if backend == "winget" else _pkg.choco_install(pkg_id, logger)
+            if result["ok"]:
+                ok(f"Installed '{pkg_id}'.")
+            else:
+                err(f"Failed (code {result['code']}).")
+                if result["error"]:
+                    print(f"  {DIM}{result['error'][:200]}{RST}")
+            pause()
+
+        elif c == "4":
+            pkg_id = prompt("Package ID to uninstall: ").strip()
+            if not pkg_id:
+                continue
+            warn(f"Uninstall '{pkg_id}'?")
+            if prompt(t("prompt.type_yes")).upper() not in ("YES", "ANO"):
+                continue
+            backend = _pick_backend(wg, ch)
+            if not backend:
+                err("No package manager found."); pause(); continue
+            info(f"Uninstalling '{pkg_id}'…")
+            result = _pkg.winget_uninstall(pkg_id, logger) if backend == "winget" else _pkg.choco_uninstall(pkg_id, logger)
+            ok(f"Done.") if result["ok"] else err(f"Failed (code {result['code']}).")
+            pause()
+
+        elif c == "5":
+            if not wg:
+                err("winget not available."); pause(); continue
+            info("Checking for upgradable packages…")
+            pkgs = _pkg.winget_upgradable(logger)
+            sep()
+            if not pkgs:
+                ok("All packages up to date.")
+            else:
+                print(f"  {'Name':<35}  {'Current':<14}  {'Available'}")
+                sep("-")
+                for p in pkgs:
+                    print(f"  {p.get('Name','')[:35]:<35}  {p.get('Version','')[:14]:<14}  {G}{p.get('Available','')}{RST}")
+                print(f"\n  {len(pkgs)} upgrade(s) available.")
+            pause()
+
+        elif c == "6":
+            if not wg:
+                err("winget not available."); pause(); continue
+            warn("Upgrade ALL packages via winget?")
+            if prompt(t("prompt.type_yes")).upper() not in ("YES", "ANO"):
+                continue
+            info("Upgrading all packages… (may take several minutes)")
+            result = _pkg.winget_upgrade_all(logger)
+            ok("Upgrade complete.") if result["ok"] else err(f"Some upgrades failed (code {result['code']}).")
+            pause()
+
+        elif c == "7":
+            if not ch:
+                err("Chocolatey not available."); pause(); continue
+            warn("Upgrade ALL choco packages?")
+            if prompt(t("prompt.type_yes")).upper() not in ("YES", "ANO"):
+                continue
+            info("Upgrading all choco packages… (may take several minutes)")
+            result = _pkg.choco_upgrade_all(logger)
+            ok("Upgrade complete.") if result["ok"] else err(f"Failed (code {result['code']}).")
+            pause()
+
+        else:
+            err(t("app.unknown_option"))
+
+
+def _pick_backend(wg: bool, ch: bool) -> str | None:
+    if wg and not ch:
+        return "winget"
+    if ch and not wg:
+        return "choco"
+    if wg and ch:
+        print(f"  {C}[1]{RST} winget   {C}[2]{RST} Chocolatey")
+        choice = prompt("Backend: ")
+        return "winget" if choice == "1" else "choco" if choice == "2" else None
+    return None
+
+
+# ── 47. FILE ENCRYPTION ──────────────────────────────────────
+
+def menu_fileencrypt(logger: CleanerLogger):
+    from core import fileencrypt as _enc
+
+    if not _enc.crypto_available():
+        header(t("menu.file_encrypt"))
+        err("The 'cryptography' library is not installed.")
+        print(f"  {DIM}Run:  pip install cryptography>=41.0.0{RST}")
+        pause()
+        return
+
+    while True:
+        header(t("menu.file_encrypt"))
+        print(f"  {DIM}AES-256-GCM · scrypt key derivation · .scenc extension{RST}")
+        sep()
+        print(f"  {C}[1]{RST} Encrypt a file")
+        print(f"  {C}[2]{RST} Decrypt a file  {DIM}(.scenc){RST}")
+        print(f"  {C}[3]{RST} Encrypt a folder  {DIM}(all files recursively){RST}")
+        print(f"  {C}[4]{RST} Decrypt a folder  {DIM}(all .scenc files){RST}")
+        print(f"  {C}[0]{RST} {t('menu.back')}")
+        sep()
+        c = prompt()
+
+        if c == "0":
+            break
+
+        elif c == "1":
+            path = prompt("File path: ").strip().strip('"')
+            if not path:
+                continue
+            p = Path(path)
+            if not p.is_file():
+                err("File not found."); pause(); continue
+            pw = _ask_password()
+            if not pw:
+                continue
+            info("Encrypting…")
+            r = _enc.encrypt_file(p, pw, logger)
+            if r["ok"]:
+                ok(f"Encrypted: {r['dst']}")
+            else:
+                err(f"Failed: {r['error']}")
+            pause()
+
+        elif c == "2":
+            path = prompt("Encrypted file path (.scenc): ").strip().strip('"')
+            if not path:
+                continue
+            p = Path(path)
+            if not p.is_file():
+                err("File not found."); pause(); continue
+            pw = _ask_password(confirm=False)
+            if not pw:
+                continue
+            info("Decrypting…")
+            r = _enc.decrypt_file(p, pw, logger)
+            if r["ok"]:
+                ok(f"Decrypted: {r['dst']}")
+            else:
+                err(f"Failed: {r['error']}")
+            pause()
+
+        elif c == "3":
+            path = prompt("Folder path: ").strip().strip('"')
+            if not path:
+                continue
+            p = Path(path)
+            if not p.is_dir():
+                err("Folder not found."); pause(); continue
+            pw = _ask_password()
+            if not pw:
+                continue
+            warn(f"Encrypt ALL files in '{p.name}'? Originals remain — encrypted copies will be created.")
+            if prompt(t("prompt.type_yes")).upper() not in ("YES", "ANO"):
+                continue
+            info("Encrypting folder…")
+            r = _enc.encrypt_folder(p, pw, logger)
+            ok(f"Encrypted: {r['encrypted']}   Skipped: {r['skipped']}   Errors: {len(r['errors'])}")
+            for e in r["errors"][:5]:
+                err(f"  {e}")
+            pause()
+
+        elif c == "4":
+            path = prompt("Folder path: ").strip().strip('"')
+            if not path:
+                continue
+            p = Path(path)
+            if not p.is_dir():
+                err("Folder not found."); pause(); continue
+            pw = _ask_password(confirm=False)
+            if not pw:
+                continue
+            info("Decrypting folder…")
+            r = _enc.decrypt_folder(p, pw, logger)
+            ok(f"Decrypted: {r['decrypted']}   Failed: {r['failed']}")
+            for e in r["errors"][:5]:
+                err(f"  {e}")
+            pause()
+
+        else:
+            err(t("app.unknown_option"))
+
+
+def _ask_password(confirm: bool = True) -> str | None:
+    import getpass
+    try:
+        pw = getpass.getpass("  Password: ")
+        if not pw:
+            err("Password cannot be empty.")
+            return None
+        if confirm:
+            pw2 = getpass.getpass("  Confirm password: ")
+            if pw != pw2:
+                err("Passwords do not match.")
+                return None
+        return pw
+    except (KeyboardInterrupt, EOFError):
+        return None
+
+
+# ── 48. DRIVER MANAGER ───────────────────────────────────────
+
+def menu_drivermgr(logger: CleanerLogger):
+    from core import drivermgr as _drv
+
+    while True:
+        header(t("menu.driver_mgr"))
+        wmi_lbl = f"{G}available{RST}" if _drv.wmi_available() else f"{Y}not installed (pip install wmi){RST}"
+        print(f"  WMI: {wmi_lbl}")
+        sep()
+        print(f"  {C}[1]{RST} List all PnP drivers  {DIM}(WMI){RST}")
+        print(f"  {C}[2]{RST} Show unsigned drivers  {DIM}(WMI){RST}")
+        print(f"  {C}[3]{RST} List kernel drivers    {DIM}(driverquery){RST}")
+        print(f"  {C}[4]{RST} Open Device Manager")
+        print(f"  {C}[0]{RST} {t('menu.back')}")
+        sep()
+        c = prompt()
+
+        if c == "0":
+            break
+
+        elif c == "1":
+            if not _drv.wmi_available():
+                err("wmi library not installed."); pause(); continue
+            info("Loading PnP drivers via WMI… (may take a moment)")
+            drivers = _drv.get_pnp_drivers(logger)
+            sep()
+            if not drivers:
+                warn("No PnP drivers found.")
+            else:
+                print(f"  {'#':>4}  {'Signed':<6}  {'Name':<35}  {'Version':<14}  {'Date':<12}  Class")
+                sep("-")
+
+                page_size = 30
+                total = len(drivers)
+                offset = 0
+                while offset < total:
+                    chunk = drivers[offset:offset + page_size]
+                    for i, d in enumerate(chunk, offset + 1):
+                        signed_lbl = f"{G}✓{RST}" if d["signed"] else f"{R}✗{RST}"
+                        print(f"  {i:>4}  {signed_lbl}      {d['name'][:35]:<35}  "
+                              f"{d['driver_version'][:14]:<14}  {d['driver_date']:<12}  {d['device_class']}")
+                    offset += page_size
+                    if offset < total:
+                        sep()
+                        more = prompt(f"  [{offset}/{total}] Press Enter for more, or 0 to stop: ")
+                        if more == "0":
+                            break
+                print(f"\n  Total: {total} drivers")
+            pause()
+
+        elif c == "2":
+            if not _drv.wmi_available():
+                err("wmi library not installed."); pause(); continue
+            info("Scanning for unsigned drivers…")
+            drivers = _drv.get_unsigned_drivers(logger)
+            sep()
+            if not drivers:
+                ok("No unsigned drivers found.")
+            else:
+                print(f"  {Y}Found {len(drivers)} unsigned driver(s):{RST}")
+                sep("-")
+                for d in drivers:
+                    print(f"  {R}✗{RST}  {d['name'][:40]:<40}  {d['driver_version']:<14}  {d['inf_name']}")
+            pause()
+
+        elif c == "3":
+            info("Running driverquery…")
+            drivers = _drv.get_kernel_drivers(logger)
+            sep()
+            if not drivers:
+                warn("No kernel drivers returned (driverquery may require elevation).")
+            else:
+                print(f"  {'#':>4}  {'State':<10}  {'Start':<10}  {'Name'}")
+                sep("-")
+                page_size = 30
+                total = len(drivers)
+                offset = 0
+                while offset < total:
+                    chunk = drivers[offset:offset + page_size]
+                    for i, d in enumerate(chunk, offset + 1):
+                        state_col = G if d["state"] == "Running" else DIM
+                        print(f"  {i:>4}  {state_col}{d['state'][:10]:<10}{RST}  "
+                              f"{d['start'][:10]:<10}  {d['name'][:45]}")
+                    offset += page_size
+                    if offset < total:
+                        sep()
+                        more = prompt(f"  [{offset}/{total}] Press Enter for more, or 0 to stop: ")
+                        if more == "0":
+                            break
+                print(f"\n  Total: {total}")
+            pause()
+
+        elif c == "4":
+            if _drv.open_device_manager():
+                ok("Device Manager opened.")
+            else:
+                err("Failed to open Device Manager.")
+            pause()
+
+        else:
+            err(t("app.unknown_option"))
 
 
 def menu_history(logger: CleanerLogger):

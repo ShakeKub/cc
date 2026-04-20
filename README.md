@@ -17,7 +17,7 @@ python main.py
 
 ## Menu
 
-The main menu is organized into five categories across 43 options.
+The main menu is organized into six categories across 45 options.
 
 ### Cleaning
 | # | Feature | Description |
@@ -39,6 +39,7 @@ The main menu is organized into five categories across 43 options.
 | 35 | Font Manager | List all installed fonts, view file sizes, delete unused ones |
 | 36 | Shortcut Fixer | Scan Desktop and Start Menu for broken .lnk files, delete them |
 | 37 | MSI Cache Cleaner | Find orphaned installer files in `C:\Windows\Installer` and reclaim disk space |
+| 47 | File Encryption | AES-256-GCM encrypt/decrypt files and folders; scrypt key derivation; `.scenc` extension |
 
 ### Tools
 | # | Feature | Description |
@@ -57,17 +58,20 @@ The main menu is organized into five categories across 43 options.
 | 32 | Performance Boost | One-click speed-up: kill bloat apps, trim RAM, High Performance power plan, disable animations, stop heavy services |
 | 33 | Environment Variables | View and edit user and system environment variables; broadcasts changes live |
 | 34 | Firewall Rules | List, toggle, and delete Windows Firewall rules filtered by direction and state |
+| 46 | Package Manager | Install, uninstall, upgrade packages via winget and Chocolatey; show upgradable list |
+| 49 | App Manager | List running user apps with CPU/RAM/connections; kill or block/unblock internet per process |
 
 ### Monitoring
 | # | Feature | Description |
 |---|---------|-------------|
-| 22 | App Tracer | Track file, registry, and process activity of any app in real-time; save sessions |
-| 23 | Scout Mode | Deep monitoring: file I/O, downloads, network connections, registry changes, spawned processes |
+| 22 | App Tracer | Real-time file/process/network tracing; **Pre-launch scan** (static trace before launch); **Protected Run** (snapshot + optional net block + added/modified/deleted diff on exit) |
+| 23 | Scout Mode | Deep monitoring — file I/O, registry changes, downloads, network, spawned processes; file diff breakdown (added/modified/deleted/unchanged); **Pre-launch scan**; **Protected/Sandboxed Run** with live feed + diff |
 | 24 | System Health | Composite health score (0–100, A–F) across CPU, RAM, disk, startup load, and uptime |
 | 25 | Crash Logs | Read critical/error events from Windows Event Log, BSOD history, and minidump files |
 | 26 | Disk Health | Physical disk info, SMART counters (temperature, wear, errors), partition usage bars |
 | 38 | System Info | Full hardware snapshot — CPU, RAM sticks, GPU, disks, network adapters — with file export |
 | 39 | Network Speed Test | Ping latency (3 servers), DNS resolution timing, 10 MB download speed test |
+| 48 | Driver Manager | List PnP drivers (WMI), highlight unsigned drivers, list kernel drivers (driverquery), open Device Manager |
 
 ### System
 | # | Feature | Description |
@@ -82,6 +86,165 @@ The main menu is organized into five categories across 43 options.
 | 42 | Ad Blocker | Hosts-based ad and tracker blocking — 80+ domains, toggle on/off, no external downloads |
 | 43 | Wake-on-LAN | Send magic packets to saved or ad-hoc MAC addresses via UDP broadcast |
 
+### Gaming
+| # | Feature | Description |
+|---|---------|-------------|
+| 44 | Gaming Hub | MTA San Andreas serial spoofer (hardware ID) and FiveM identity wipe |
+| 45 | MTA Lua Executor | Write, edit, save, and deploy Lua scripts as in-game resources on an MTA server |
+
+---
+
+## Tutorial: MTA Serial Spoofer
+
+### How it works
+
+MTA San Andreas does not store your serial anywhere — it **computes it on every launch** from two Windows hardware identifiers:
+
+| Registry key | Value name |
+|---|---|
+| `HKLM\SOFTWARE\Microsoft\Cryptography` | `MachineGuid` |
+| `HKLM\SYSTEM\CurrentControlSet\Control\IDConfigDB\Hardware Profiles\0001` | `HwProfileGuid` |
+
+Spoofing your serial means replacing those two GUIDs with random values before launching MTA. Your original values are backed up automatically so you can restore them at any time.
+
+### Step-by-step
+
+1. **Run System Cleaner as Administrator** (required for HKLM registry writes).
+2. From the main menu press **`44`** → Gaming Hub.
+3. The screen shows your current hardware IDs and whether a backup exists.
+4. Press **`m1`** → **Spoof** — two new random GUIDs are written. A backup is saved to `mta_hwid_backup.json`.
+5. **Launch MTA San Andreas.** It will compute a new serial from the spoofed GUIDs.
+6. When you want your original serial back, press **`m2`** → **Restore** — the backup values are written back.
+
+> **Note:** The spoof persists through reboots until you restore. Use `[m2]` whenever you want to revert.
+
+### FiveM
+
+FiveM stores identity tokens in cached files rather than computing them from hardware. Use:
+
+- **`f1`** → Clear identity tokens (`ros_id.dat`, game-storage DB) — gives you a new FiveM identity.
+- **`f2`** → Full cache wipe — removes all cached FiveM data.
+
+---
+
+## Tutorial: MTA Lua Executor
+
+The Executor lets you write Lua scripts and deploy them as a resource on an MTA San Andreas **server**. Once deployed you start the resource from the MTA F8 console — no server restart needed.
+
+### Requirements
+
+- Access to the MTA server's `resources` directory (local or network path).
+- The MTA server must be running.
+
+### Step-by-step
+
+1. From the main menu press **`45`** → MTA Lua Executor.
+2. If the tool detects your resources directory automatically it shows the path at the top. If not, press **`5`** and paste the path manually (e.g. `C:\MTA\server\mods\deathmatch\resources`).
+3. Press **`1`** → **Write / paste Lua code** — the editor window opens.
+
+#### Using the code editor
+
+The editor shows your script with line numbers inside a framed window:
+
+```
+  ┌─ Lua Editor ──────────────────────────────────┐
+  │   1  outputChatBox("Hello!", root, 255, 255, 0)
+  │   2  
+  └────────────────────────────────────────────────┘
+  lua> _
+```
+
+| Command | Action |
+|---|---|
+| Type any text + Enter | Append a new line |
+| `.e 2 new content` | Replace line 2 with `new content` |
+| `.d 2` | Delete line 2 |
+| `.ins 2` | Insert a new line before line 2 (prompts for content) |
+| `.clear` | Remove all lines |
+| `.done` | Finish editing and continue |
+| `.cancel` | Discard changes and go back |
+
+4. After typing `.done`, choose the script target:
+   - **`1`** Client-side
+   - **`2`** Server-side
+   - **`3`** Both
+
+5. The tool creates `resources/sc_executor/` containing `meta.xml`, `client.lua`, and `server.lua`.
+
+6. **In MTA F8 console** (press F8 in-game or in the server console) type:
+   ```
+   start sc_executor
+   ```
+   The resource loads immediately. To reload after a code change:
+   ```
+   restart sc_executor
+   ```
+
+### Saving and reusing scripts
+
+- **`3`** — Write a new script and save it under a name (alphanumeric, `-`, `_`).
+- **`2`** — Pick a saved script, optionally edit it in the editor, then deploy.
+- **`4`** — List all saved scripts, view previews, delete ones you no longer need.
+
+Scripts are stored as `.lua` files in the `executor_scripts/` directory next to `main.py`.
+
+---
+
+## Tutorial: App Manager (option 49)
+
+### Blocking an app's internet access
+
+1. From the main menu press **`3`** (Tools) → **`49`** App Manager.
+2. The list shows all running user apps with CPU%, RAM, and active connection count. Apps already blocked are marked `[B]` in red.
+3. To block an app's outbound internet, type **`b <number>`** — e.g. `b 3` blocks the third app in the list.  
+   This adds a Windows Firewall outbound block rule named `SC_BLOCK_<exe>`. Admin rights required.
+4. To unblock, type **`u <number>`**.
+5. **`ba`** blocks all apps that currently have active connections in one step.
+6. **`k <number>`** kills the process immediately.
+
+The block rule persists through reboots. It is visible in Windows Defender Firewall → Advanced Settings → Outbound Rules.
+
+---
+
+## Tutorial: Pre-launch Scan & Protected Run
+
+These options appear in both **App Tracer** (`[22]`) and **Scout Mode** (`[23]`).
+
+### Pre-launch scan (`[8]` / `[6]`)
+
+Run this **before** you launch an app to see what traces it already has on your system:
+files, registry keys, services, scheduled tasks, and whether it is already running.
+
+1. Press `8` in App Tracer (or `6` in Scout Mode).
+2. Enter the app name (e.g. `discord`, `obs64`, `steam`).
+3. The scanner searches AppData, ProgramData, Program Files, Temp, and the registry.
+4. Use the results as your baseline before running the app.
+
+### Protected run (`[9]` / `[7]`)
+
+Launches an app inside a monitoring envelope:
+- Takes a **filesystem + registry snapshot** before launch.
+- Optionally **blocks the app's outbound internet** via Windows Firewall.
+- Streams live events (file/registry/network/process) while the app runs.
+- On exit, computes a **diff** showing every file added, modified, or deleted.
+
+Step-by-step:
+1. Press `9` in App Tracer (or `7` in Scout Mode).
+2. Enter the full path to the `.exe`.
+3. Enter the folder to watch (default: your user profile).
+4. Choose whether to block internet.
+5. The app launches. Press **Enter** when you want to stop monitoring.
+6. The diff report shows:
+   - `+` **Added** — new files created by the app
+   - `~` **Modified** — files that existed before and were changed
+   - `-` **Deleted** — files the app removed
+   - `Unchanged` — count of files that were not touched
+   - Registry changes (keys/values added, modified, or deleted)
+
+In Scout Mode (`[7]`) a full live Scout session also runs alongside the snapshot, so all raw events are saved to `profiles/` for later review.
+
+---
+
 ## Multi-select
 
 Every list-based menu accepts comma-separated item numbers: `d 1,3,5` deletes items 1, 3, and 5. Use `all` where available to act on everything at once.
@@ -95,6 +258,8 @@ cc/
 ├── config.json           # Cleaning profiles and language setting
 ├── requirements.txt
 ├── wol_devices.json      # Saved Wake-on-LAN devices (auto-created)
+├── mta_hwid_backup.json  # MTA hardware ID backup (auto-created on first spoof)
+├── executor_scripts/     # Saved Lua scripts (auto-created)
 ├── locales/
 │   ├── en.json           # English strings
 │   └── cs.json           # Czech strings
@@ -138,19 +303,31 @@ cc/
 │   ├── sysinfo.py        # Full system info snapshot and export
 │   ├── wol.py            # Wake-on-LAN magic packet sender
 │   ├── adblocker.py      # Hosts-based ad and tracker blocker
-│   └── netspeed.py       # Network speed test (ping, DNS, download)
+│   ├── netspeed.py       # Network speed test (ping, DNS, download)
+│   ├── gaming.py         # MTA serial spoofer and identity wipe
+│   ├── executor.py       # MTA Lua resource deployer
+│   ├── appmgr.py         # Running app list + per-process firewall block/unblock
+│   ├── sandbox.py        # Filesystem+registry snapshot, diff, protected app launch
+│   ├── pkgmgr.py         # Package Manager (winget + Chocolatey)
+│   ├── fileencrypt.py    # AES-256-GCM file/folder encryption
+│   └── drivermgr.py      # Driver Manager (WMI PnP + driverquery)
 ├── profiles/             # Saved tracer and scout session files (JSON)
 └── logs/                 # Exported session logs
 ```
 
 ## Notes
 
-- **Admin rights** are required for RAM optimization, service management, system restore points, registry writes outside HKCU, editing the hosts file, and firewall rule changes.
+- **Admin rights** are required for RAM optimization, service management, system restore points, registry writes outside HKCU, editing the hosts file, firewall rule changes, the MTA serial spoofer, and blocking app internet access.
+- **App Manager** blocks outbound internet by adding a Windows Firewall rule named `SC_BLOCK_<exe>`. Rules are visible in Windows Firewall advanced settings and survive reboots until removed.
+- **Protected Run** (App Tracer / Scout Mode) takes a filesystem+registry snapshot before the app launches and diffs it after — showing exactly which files were added, modified, or deleted. Optionally blocks the app's network during the run.
+- **Pre-launch Scan** runs the static AppTracer against an app name before you start it — showing existing files, registry keys, services, and scheduled tasks it already has on disk.
 - **Ad Blocker** writes entries to `C:\Windows\System32\drivers\etc\hosts` between clearly marked section markers — disabling removes only those lines.
 - **Secure Wipe** overwrites file content before deletion. It cannot recover files deleted through normal means.
 - **Scout Mode** uses `watchdog` for filesystem monitoring and `psutil` for process/network polling. It saves sessions to `profiles/scout_*.json`.
 - **Wake-on-LAN** devices are saved to `wol_devices.json` in the project directory.
 - **Language** defaults to English. Switch to Czech via option 31; the setting persists in `config.json`.
+- **MTA Spoofer** requires admin rights and backs up original hardware IDs to `mta_hwid_backup.json` before any change.
+- **MTA Executor** deploys scripts to the server's `resources/` folder. The server must be running for `start sc_executor` to work.
 
 ## License
 

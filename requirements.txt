@@ -4,3 +4,6 @@ psutil>=5.9.0
 aiofiles>=23.2.0
 pyyaml>=6.0
 watchdog>=4.0.0
+cryptography>=41.0.0
+wmi>=1.5.1; sys_platform == "win32"
+pywin32>=306; sys_platform == "win32"
