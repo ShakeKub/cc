@@ -11,6 +11,7 @@
   "status.admin": "ADMIN",
   "status.no_admin": "bez admina",
 
+  "cat.gaming":      "Gaming",
   "cat.cleaning":    "Čištění",
   "cat.file_tools":  "Soubory",
   "cat.tools":       "Nástroje",
@@ -51,6 +52,7 @@
   "menu.dns_hosts":      "DNS & Hosts editor",
   "menu.ad_blocker":     "Blokátor reklam",
   "menu.wol":            "Wake-on-LAN",
+  "menu.gaming":         "Gaming Hub",
   "menu.app_tracer":     "Trasovač aplikací",
   "menu.scout_mode":     "Režim Scout",
   "menu.health":         "Zdraví systému",

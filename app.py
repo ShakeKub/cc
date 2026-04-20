@@ -217,6 +217,9 @@ def _menu_categories():
             ("42", t("menu.ad_blocker")),
             ("43", t("menu.wol")),
         ]),
+        (t("cat.gaming"), [
+            ("44", t("menu.gaming")),
+        ]),
     ]
 
 
@@ -283,6 +286,7 @@ _DISPATCH = {
     "41": lambda l: menu_dns_hosts(l),
     "42": lambda l: menu_adblocker(l),
     "43": lambda l: menu_wol(l),
+    "44": lambda l: menu_gaming(l),
 }
 
 
@@ -3622,6 +3626,207 @@ def menu_wol(logger: CleanerLogger):
                 else:
                     err(f"Failed: {d.get('name', d['mac'])}")
             pause()
+
+
+# ── GAMING ───────────────────────────────────────────────────────────────────
+
+def _menu_spoofer(logger: CleanerLogger):
+    from core.gaming import (
+        get_mta_serial, set_mta_serial, generate_mta_serial, delete_mta_serial,
+        get_fivem_info, clear_fivem_identity, clear_fivem_full_cache,
+    )
+    while True:
+        header("Spoofer")
+        sep()
+        print(f"  {DIM}Changes local identifiers used by MTA and FiveM.{RST}")
+        print(f"  {DIM}Close both games before spoofing.{RST}")
+        sep()
+        print(f"  {B}MTA San Andreas{RST}")
+        serials = get_mta_serial(logger)
+        if serials:
+            for path, serial in serials.items():
+                short_path = path.split("\\")[-3] if "\\" in path else path
+                print(f"    Current serial ({short_path}): {C}{serial}{RST}")
+        else:
+            print(f"    {DIM}No MTA installation found in registry.{RST}")
+        sep("-")
+        print(f"  {C}[m1]{RST} Generate & apply random MTA serial")
+        print(f"  {C}[m2]{RST} Enter custom MTA serial")
+        print(f"  {C}[m3]{RST} Delete serial (MTA regenerates from hardware on next launch)")
+        sep()
+
+        fivem = get_fivem_info()
+        print(f"  {B}FiveM / CitizenFX{RST}")
+        if fivem["installed"]:
+            ros_status = f"{G}exists{RST}" if fivem["ros_id_exists"] else f"{DIM}not found{RST}"
+            print(f"    FiveM dir  : {fivem['app_dir']}")
+            print(f"    CitizenFX  : {fivem['citfx_dir']}")
+            print(f"    ros_id.dat : {ros_status}")
+            print(f"    Cache dirs : {len(fivem['cache_dirs'])} found")
+            print(f"    ID files   : {len(fivem['id_files'])} stored")
+        else:
+            print(f"    {DIM}FiveM not found at %LOCALAPPDATA%\\FiveM{RST}")
+        sep("-")
+        print(f"  {C}[f1]{RST} Clear FiveM identity tokens  (ros_id, auth tokens, game-storage)")
+        print(f"  {C}[f2]{RST} Full FiveM cache wipe         (identity + all server resource cache)")
+        sep()
+        print(f"  {C}[0]{RST} {t('menu.back')}")
+        sep()
+        cmd = prompt().strip().lower()
+        if cmd == "0":
+            break
+
+        elif cmd == "m1":
+            new_serial = generate_mta_serial()
+            warn(f"New serial will be: {C}{new_serial}{RST}")
+            if prompt(t("prompt.type_yes")).upper() not in ("YES", "ANO"):
+                continue
+            results = set_mta_serial(new_serial, logger)
+            written = sum(1 for v in results.values() if v)
+            if written:
+                ok(f"MTA serial updated in {written} registry location(s): {new_serial}")
+            else:
+                err("No MTA registry entries found to update.")
+            pause()
+
+        elif cmd == "m2":
+            custom = prompt("Enter 32-char hex serial (or press Enter to cancel): ").strip().upper()
+            if not custom:
+                continue
+            if len(custom) != 32 or not all(c in "0123456789ABCDEF" for c in custom):
+                err("Serial must be exactly 32 hexadecimal characters."); pause(); continue
+            results = set_mta_serial(custom, logger)
+            written = sum(1 for v in results.values() if v)
+            if written:
+                ok(f"MTA serial set in {written} location(s): {custom}")
+            else:
+                err("No MTA registry entries found to update.")
+            pause()
+
+        elif cmd == "m3":
+            warn("MTA will generate a new serial from your hardware fingerprint on next launch.")
+            if prompt(t("prompt.type_yes")).upper() not in ("YES", "ANO"):
+                continue
+            results = delete_mta_serial(logger)
+            deleted = sum(1 for v in results.values() if v)
+            if deleted:
+                ok(f"Serial deleted from {deleted} registry location(s). Launch MTA to regenerate.")
+            else:
+                err("Nothing to delete — serial key not found.")
+            pause()
+
+        elif cmd == "f1":
+            if not fivem["installed"]:
+                err("FiveM not found."); pause(); continue
+            warn("This removes stored CitizenFX identity tokens and game-storage cache.")
+            warn("FiveM will regenerate new identifiers on next launch.")
+            if prompt(t("prompt.type_yes")).upper() not in ("YES", "ANO"):
+                continue
+            result = clear_fivem_identity(logger)
+            ok(f"Done — {result['removed_files']} file(s) removed, "
+               f"{result['removed_dirs']} cache dir(s) cleared.")
+            if result["errors"]:
+                warn(f"{len(result['errors'])} error(s) — some files may have been in use.")
+            pause()
+
+        elif cmd == "f2":
+            if not fivem["installed"]:
+                err("FiveM not found."); pause(); continue
+            warn("Full cache wipe — identity tokens AND all downloaded server resources.")
+            warn("FiveM will re-download server resources on next connection.")
+            if prompt(t("prompt.type_yes")).upper() not in ("YES", "ANO"):
+                continue
+            result = clear_fivem_full_cache(logger)
+            ok(f"Done — {result['removed_files']} file(s) removed, "
+               f"{result['removed_dirs']} cache dir(s) cleared.")
+            if result["errors"]:
+                warn(f"{len(result['errors'])} error(s) — some files may have been in use.")
+            pause()
+
+        else:
+            err("Unknown option.")
+
+
+def _menu_gaming_optimizer(logger: CleanerLogger):
+    from core.gaming import (enable_game_mode, disable_game_bar,
+                              set_gpu_high_priority, disable_fullscreen_optimizations)
+    while True:
+        header("Gaming Optimizer")
+        sep()
+        print(f"  {DIM}Registry tweaks for better in-game performance. Requires admin for GPU priority.{RST}")
+        sep()
+        print(f"  {C}[1]{RST} Enable Windows Game Mode")
+        print(f"  {C}[2]{RST} Disable Xbox Game Bar & Game DVR overlay")
+        print(f"  {C}[3]{RST} Set GPU + system scheduler to High priority  {DIM}(reboot to apply){RST}")
+        print(f"  {C}[4]{RST} Disable fullscreen optimizations system-wide")
+        print(f"  {C}[all]{RST} Apply all four tweaks")
+        print(f"  {C}[0]{RST} {t('menu.back')}")
+        sep()
+        cmd = prompt().strip().lower()
+        if cmd == "0":
+            break
+        actions = ["1","2","3","4"] if cmd == "all" else ([cmd] if cmd in ("1","2","3","4") else [])
+        if not actions:
+            err("Unknown option."); pause(); continue
+        for act in actions:
+            if act == "1":
+                ok("Game Mode enabled.") if enable_game_mode(logger) else err("Failed.")
+            elif act == "2":
+                ok("Game Bar and DVR disabled.") if disable_game_bar(logger) else err("Failed.")
+            elif act == "3":
+                ok("GPU priority set to High (reboot required).") if set_gpu_high_priority(logger) else err("Failed — admin required.")
+            elif act == "4":
+                ok("Fullscreen optimizations disabled.") if disable_fullscreen_optimizations(logger) else err("Failed.")
+        pause()
+
+
+def _menu_installed_games(logger: CleanerLogger):
+    from core.gaming import find_installed_games
+    games: list[dict] = []
+    while True:
+        header("Installed Games")
+        if not games:
+            info("Scanning Steam, Epic, GOG, Ubisoft Connect…")
+            games = find_installed_games(logger)
+        sep()
+        if not games:
+            warn("No games found. Supported launchers: Steam, Epic, GOG, Ubisoft Connect.")
+        else:
+            total_gb = sum(g["size_gb"] for g in games)
+            print(f"  {len(games)} game(s) found — {total_gb:.1f} GB total")
+            sep("-")
+            print(f"  {'#':>3}  {'Game':<45}  {'Platform':<12}  Size")
+            sep("-")
+            for i, g in enumerate(games):
+                print(f"  {i+1:>3}  {g['name'][:45]:<45}  {g['platform']:<12}  {g['size_gb']} GB")
+        sep()
+        print(f"  {C}[r]{RST} Rescan   {C}[0]{RST} {t('menu.back')}")
+        sep()
+        cmd = prompt()
+        if cmd == "0":
+            break
+        if cmd == "r":
+            games = []
+
+
+def menu_gaming(logger: CleanerLogger):
+    while True:
+        header("Gaming")
+        sep()
+        print(f"  {C}[1]{RST} Spoofer           — MTA serial, FiveM identity & cache")
+        print(f"  {C}[2]{RST} Gaming Optimizer   — Game Mode, Game Bar, GPU priority, FSO")
+        print(f"  {C}[3]{RST} Installed Games    — Scan Steam, Epic, GOG, Ubisoft Connect")
+        print(f"  {C}[0]{RST} {t('menu.back')}")
+        sep()
+        cmd = prompt()
+        if cmd == "0":
+            break
+        elif cmd == "1":
+            _menu_spoofer(logger)
+        elif cmd == "2":
+            _menu_gaming_optimizer(logger)
+        elif cmd == "3":
+            _menu_installed_games(logger)
 
 
 def menu_history(logger: CleanerLogger):

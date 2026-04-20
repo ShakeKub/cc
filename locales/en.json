@@ -16,6 +16,7 @@
   "cat.tools":       "Tools",
   "cat.monitoring":  "Monitoring",
   "cat.system":      "System",
+  "cat.gaming":      "Gaming",
 
   "menu.system_scan":    "System Scan",
   "menu.quick_clean":    "Quick Clean",
@@ -51,6 +52,7 @@
   "menu.dns_hosts":      "DNS & Hosts Editor",
   "menu.ad_blocker":     "Ad Blocker",
   "menu.wol":            "Wake-on-LAN",
+  "menu.gaming":         "Gaming Hub",
   "menu.app_tracer":     "App Tracer",
   "menu.scout_mode":     "Scout Mode",
   "menu.health":         "System Health",
