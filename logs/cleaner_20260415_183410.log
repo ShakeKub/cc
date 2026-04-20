@@ -1,3 +1,0 @@
-2026-04-15 18:34:19,667 [INFO] [tracer] Starting tracer for 'loader.exe' watching 'C:\Games' (ID: 20260415_183419):  (freed: 0B)
-2026-04-15 18:35:05,712 [INFO] [tracer] Stopped tracer session 20260415_183419:  (freed: 0B)
-2026-04-15 18:35:05,713 [INFO] [tracer] Tracer session saved to C:\Users\shake\Documents\cc\profiles\trace_20260415_183419.json:  (freed: 0B)

@@ -1,3 +1,0 @@
-2026-04-15 18:28:20,775 [INFO] [tracer] Starting tracer session for loader.exe (ID: 20260415_182820):  (freed: 0B)
-2026-04-15 18:28:29,084 [INFO] [tracer] Stopping tracer session 20260415_182820:  (freed: 0B)
-2026-04-15 18:28:29,084 [INFO] [tracer] Tracer session saved to C:\Users\shake\Documents\cc\profiles\trace_20260415_182820.json:  (freed: 0B)

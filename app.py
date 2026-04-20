@@ -189,6 +189,7 @@ def _menu_categories():
             ("14", t("menu.startup_mgr")),
             ("15", t("menu.disk_tools")),
             ("16", t("menu.registry")),
+            ("rE", t("menu.regedit")),
             ("17", t("menu.optimizer")),
             ("18", t("menu.privacy")),
             ("19", t("menu.uninstaller")),
@@ -302,6 +303,9 @@ _DISPATCH = {
     "14": lambda l: menu_startup(l),
     "15": lambda l: menu_disk(l),
     "16": lambda l: menu_registry(l),
+    "rE": lambda l: menu_regedit(l),
+    "re": lambda l: menu_regedit(l),
+    "RE": lambda l: menu_regedit(l),
     "17": lambda l: menu_optimizer(l),
     "18": lambda l: menu_privacy(l),
     "19": lambda l: menu_uninstaller(l),
@@ -851,6 +855,231 @@ def menu_registry(logger: CleanerLogger):
                     err(t("reg.bak_fail"))
             except Exception as e:
                 err(str(e))
+            pause()
+
+
+def _ask_snapshot_path(default_path: str = "") -> str:
+    suffix = f" [{default_path}]" if default_path else ""
+    path = prompt(f"Snapshot JSON path{suffix}: ").strip().strip('"')
+    return path or default_path
+
+
+def _ask_hive_and_key() -> tuple[str, str]:
+    raw = prompt("Hive + key (example HKCU\\Software\\Vendor\\App): ").strip().strip('"').strip("\\")
+    if not raw:
+        return "", ""
+    if "\\" in raw:
+        hive, key_path = raw.split("\\", 1)
+        return hive.upper(), key_path.strip("\\")
+    key_path = prompt("Key path (without hive prefix): ").strip().strip('"').strip("\\")
+    return raw.upper(), key_path
+
+
+def menu_regedit(logger: CleanerLogger):
+    """rE - snapshot-based registry editor/importer."""
+    last_snapshot = ""
+
+    while True:
+        header(t("hdr.regedit"))
+        info("Create full registry snapshots to JSON, then edit/delete entries and import them back.")
+        if last_snapshot:
+            print(f"  Last snapshot: {last_snapshot}")
+        sep()
+        print(f"  {C}[1]{RST} Create full registry snapshot (JSON)")
+        print(f"  {C}[2]{RST} Show snapshot info")
+        print(f"  {C}[3]{RST} Find keys in snapshot")
+        print(f"  {C}[4]{RST} Edit/add snapshot value")
+        print(f"  {C}[5]{RST} Delete snapshot key/value")
+        print(f"  {C}[6]{RST} Re-import snapshot into registry")
+        print(f"  {C}[0]{RST} {t('menu.back')}")
+        sep()
+        c = prompt().strip()
+
+        if c == "0":
+            break
+
+        elif c == "1":
+            try:
+                from core.registry import create_registry_snapshot_json
+                out = prompt("Output file [auto in backups/]: ").strip().strip('"')
+                info("Creating full registry snapshot... this can take a while.")
+                snap_path = create_registry_snapshot_json(out, logger)
+                if snap_path:
+                    last_snapshot = snap_path
+                    ok(f"Snapshot saved: {snap_path}")
+                else:
+                    err("Snapshot creation failed.")
+            except Exception as e:
+                err(str(e))
+            pause()
+
+        elif c == "2":
+            path = _ask_snapshot_path(last_snapshot)
+            if not path:
+                err("No snapshot file specified.")
+                pause()
+                continue
+            try:
+                from core.registry import get_snapshot_info
+                meta = get_snapshot_info(path)
+                last_snapshot = path
+                sep()
+                print(f"  File     : {meta.get('path', path)}")
+                print(f"  Format   : {meta.get('format', 'unknown')}")
+                print(f"  Machine  : {meta.get('machine', 'N/A')}")
+                print(f"  Created  : {meta.get('created_at', 'N/A')}")
+                if meta.get("updated_at"):
+                    print(f"  Updated  : {meta.get('updated_at')}")
+                print(f"  Keys     : {meta.get('keys', 0)}")
+                print(f"  Values   : {meta.get('values', 0)}")
+                print(f"  Errors   : {meta.get('errors', 0)}")
+            except Exception as e:
+                err(str(e))
+            pause()
+
+        elif c == "3":
+            path = _ask_snapshot_path(last_snapshot)
+            if not path:
+                err("No snapshot file specified.")
+                pause()
+                continue
+            query = prompt("Search text (hive/key/value): ").strip()
+            limit_raw = prompt("Max results [20]: ").strip()
+            try:
+                limit = int(limit_raw) if limit_raw else 20
+            except ValueError:
+                limit = 20
+
+            try:
+                from core.registry import list_snapshot_keys
+                matches = list_snapshot_keys(path, query=query, limit=max(1, limit))
+                last_snapshot = path
+                sep()
+                if not matches:
+                    warn("No matching keys found.")
+                else:
+                    print(f"  {'#':>3}  {'Key':<72}  Values")
+                    sep("-")
+                    for i, item in enumerate(matches):
+                        full_key = f"{item['hive']}\\{item['key_path']}" if item.get("key_path") else item["hive"]
+                        print(f"  {i+1:>3}  {full_key[:72]:<72}  {item.get('value_count', 0):>6}")
+                        samples = item.get("sample_values") or []
+                        if samples:
+                            print(f"       values: {', '.join(samples)}")
+            except Exception as e:
+                err(str(e))
+            pause()
+
+        elif c == "4":
+            path = _ask_snapshot_path(last_snapshot)
+            if not path:
+                err("No snapshot file specified.")
+                pause()
+                continue
+
+            hive, key_path = _ask_hive_and_key()
+            if not hive:
+                err("Hive is required.")
+                pause()
+                continue
+
+            value_name = prompt("Value name (Enter for default value): ").strip()
+            value_type = prompt(
+                "Type [REG_SZ/REG_DWORD/REG_QWORD/REG_MULTI_SZ/REG_BINARY] "
+                "(Enter = keep/current): "
+            ).strip().upper()
+            value_raw = prompt(
+                "Value data (REG_MULTI_SZ uses |, REG_BINARY uses hex bytes): "
+            )
+
+            try:
+                from core.registry import edit_snapshot_value
+                edit_snapshot_value(
+                    path,
+                    hive,
+                    key_path,
+                    value_name,
+                    value_raw,
+                    value_type or None,
+                    logger,
+                )
+                last_snapshot = path
+                ok("Snapshot value updated.")
+            except Exception as e:
+                err(str(e))
+            pause()
+
+        elif c == "5":
+            path = _ask_snapshot_path(last_snapshot)
+            if not path:
+                err("No snapshot file specified.")
+                pause()
+                continue
+
+            mode = prompt("Delete [k]ey or [v]alue? ").strip().lower()
+            hive, key_path = _ask_hive_and_key()
+            if not hive:
+                err("Hive is required.")
+                pause()
+                continue
+
+            try:
+                if mode == "k":
+                    warn(f"Delete key from snapshot: {hive}\\{key_path} ?")
+                    if prompt(t("prompt.type_yes")).upper() in ("YES", "ANO"):
+                        from core.registry import delete_snapshot_key
+                        removed = delete_snapshot_key(path, hive, key_path, logger)
+                        if removed:
+                            ok("Snapshot key deleted.")
+                        else:
+                            err("Key not found in snapshot.")
+                elif mode == "v":
+                    value_name = prompt("Value name (Enter for default value): ").strip()
+                    warn(
+                        "Delete value from snapshot: "
+                        f"{hive}\\{key_path}::{value_name or '(Default)'} ?"
+                    )
+                    if prompt(t("prompt.type_yes")).upper() in ("YES", "ANO"):
+                        from core.registry import delete_snapshot_value
+                        removed = delete_snapshot_value(path, hive, key_path, value_name, logger)
+                        if removed:
+                            ok("Snapshot value deleted.")
+                        else:
+                            err("Value not found in snapshot.")
+                else:
+                    err("Unknown delete mode. Use 'k' or 'v'.")
+                last_snapshot = path
+            except Exception as e:
+                err(str(e))
+            pause()
+
+        elif c == "6":
+            path = _ask_snapshot_path(last_snapshot)
+            if not path:
+                err("No snapshot file specified.")
+                pause()
+                continue
+
+            warn("This will write snapshot data back into Windows registry.")
+            warn("Administrator privileges are recommended.")
+            if prompt(t("prompt.type_yes_confirm")).upper() in ("YES", "ANO"):
+                try:
+                    from core.registry import import_registry_snapshot
+                    results = import_registry_snapshot(path, logger)
+                    last_snapshot = path
+                    sep()
+                    ok(
+                        "Imported "
+                        f"{results.get('values_imported', 0)}/{results.get('values_total', 0)} values"
+                    )
+                    print(f"  Keys processed : {results.get('keys_total', 0)}")
+                    print(f"  Keys opened    : {results.get('keys_opened', 0)}")
+                    print(f"  Failed actions : {results.get('failed', 0)}")
+                except Exception as e:
+                    err(str(e))
+            pause()
+        else:
+            err(t("app.unknown_option"))
             pause()
 
 

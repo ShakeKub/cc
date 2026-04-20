@@ -1,7 +1,0 @@
-2026-04-15 13:26:01,853 [INFO] Scanned temp files: found 0 items
-2026-04-15 13:26:01,853 [ERROR] Failed to empty Recycle Bin: module 'ctypes' has no attribute 'windll'
-2026-04-15 13:26:01,869 [ERROR] [cleaning] flush_dns: DNS cache flushed (freed: 0B)
-2026-04-15 13:26:01,870 [ERROR] Failed to clear clipboard: module 'ctypes' has no attribute 'windll'
-2026-04-15 13:26:05,275 [INFO] Scanned temp files: found 0 items
-2026-04-15 13:26:05,289 [ERROR] [cleaning] flush_dns: DNS cache flushed (freed: 0B)
-2026-04-15 13:26:05,289 [ERROR] Failed to clear clipboard: module 'ctypes' has no attribute 'windll'
