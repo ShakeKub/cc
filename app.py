@@ -7,6 +7,11 @@ import sys
 import threading
 from pathlib import Path
 
+# Ensure local cc/ is first so "core.*" imports do not get shadowed.
+_APP_DIR = Path(__file__).resolve().parent
+if str(_APP_DIR) not in sys.path:
+    sys.path.insert(0, str(_APP_DIR))
+
 from core.logger import CleanerLogger
 from core.i18n import t, set_language, get_language, available_languages
 
