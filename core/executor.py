@@ -1,86 +1,152 @@
-"""MTA Lua Executor — create, manage and deploy Lua resources to MTA SA server."""
+"""MTA Lua Executor — write and deploy client-side Lua resources locally.
 
-import json
+User-mode design: scripts are deployed to the LOCAL MTA client's
+mods\deathmatch\resources\ folder (no server filesystem access needed,
+no .luac compilation needed).  The user starts the resource from the
+MTA F8 console with:  start sc_executor
+"""
+
 import os
-import subprocess
+import re
 from pathlib import Path
 from typing import Any
 from core.logger import CleanerLogger
 
-# ── paths ─────────────────────────────────────────────────────────────────────
+# ── constants ─────────────────────────────────────────────────────────────────
 
-_SCRIPTS_DIR = Path(__file__).parent.parent / "executor_scripts"
+_SCRIPTS_DIR          = Path(__file__).parent.parent / "executor_scripts"
+_EXECUTOR_RESOURCE    = "sc_executor"
 
-# Known MTA server resource directories (checked in order)
-_RESOURCE_SEARCH = [
-    Path(r"C:\Program Files (x86)\MTA San Andreas 1.6\server\mods\deathmatch\resources"),
-    Path(r"C:\Program Files\MTA San Andreas 1.6\server\mods\deathmatch\resources"),
-    Path(os.environ.get("PROGRAMDATA", r"C:\ProgramData"))
-        / r"MTA San Andreas All\1.6\server\mods\deathmatch\resources",
+# Candidate MTA install roots (checked in order)
+_MTA_INSTALL_ROOTS = [
+    Path(r"C:\Program Files (x86)\MTA San Andreas 1.6"),
+    Path(r"C:\Program Files\MTA San Andreas 1.6"),
+    Path(r"C:\Program Files (x86)\MTA San Andreas"),
+    Path(r"C:\Program Files\MTA San Andreas"),
+    Path(r"C:\MTA San Andreas 1.6"),
+    Path(r"C:\MTA San Andreas"),
 ]
 
-_EXECUTOR_RESOURCE_NAME = "sc_executor"
-
-_META_XML = """\
+# meta.xml templates
+_META_CLIENT_ONLY = """\
 <meta>
-    <info name="SC Executor" description="System Cleaner in-game executor"
-          author="SystemCleaner" version="1.0" type="script"/>
-    <script src="client.lua"  type="client"  cache="false"/>
-    <script src="server.lua"  type="server"  cache="false"/>
+    <info name="SC Executor" description="System Cleaner client script"
+          author="SC" version="1.0" type="script"/>
+    <script src="client.lua" type="client" cache="false"/>
 </meta>
 """
 
-_SERVER_LUA_WRAPPER = """\
--- SC Executor server bootstrap
-addEventHandler("onResourceStart", resourceRoot, function()
-    outputChatBox("[SC Executor] Server script loaded.", root, 0, 255, 100)
-end)
-
-{user_code}
+_META_SERVER_ONLY = """\
+<meta>
+    <info name="SC Executor" description="System Cleaner server script"
+          author="SC" version="1.0" type="script"/>
+    <script src="server.lua" type="server" cache="false"/>
+</meta>
 """
 
-_CLIENT_LUA_WRAPPER = """\
--- SC Executor client bootstrap
-addEventHandler("onClientResourceStart", resourceRoot, function()
-    outputChatBox("[SC Executor] Client script loaded.", 0, 255, 100)
-end)
-
-{user_code}
+_META_BOTH = """\
+<meta>
+    <info name="SC Executor" description="System Cleaner script"
+          author="SC" version="1.0" type="script"/>
+    <script src="client.lua" type="client" cache="false"/>
+    <script src="server.lua" type="server" cache="false"/>
+</meta>
 """
 
+_CLIENT_HEADER = "-- [SC Executor] client-side\n"
+_SERVER_HEADER = "-- [SC Executor] server-side\n"
 
-# ── resource directory discovery ──────────────────────────────────────────────
 
-def find_resources_dir(logger: CleanerLogger | None = None) -> str:
-    """Return the first MTA server resources directory that exists."""
-    # Check hardcoded paths
-    for p in _RESOURCE_SEARCH:
-        if p.exists():
-            return str(p)
+# ── path discovery ────────────────────────────────────────────────────────────
 
-    # Try to find via running MTA processes
+def find_mta_install() -> str:
+    """Return the MTA installation root directory (not the server subfolder)."""
+    # 1. Try registry (MTA stores its install path there)
+    if os.name == "nt":
+        try:
+            import winreg as w
+            for hive in (w.HKEY_LOCAL_MACHINE, w.HKEY_CURRENT_USER):
+                for base in (
+                    r"SOFTWARE\WOW6432Node\Multi Theft Auto: San Andreas All",
+                    r"SOFTWARE\Multi Theft Auto: San Andreas All",
+                ):
+                    for version in ("1.6", "1.5", ""):
+                        key_path = f"{base}\\{version}".rstrip("\\")
+                        for value_name in ("Last Install Location", "Install Location", ""):
+                            try:
+                                with w.OpenKey(hive, key_path) as key:
+                                    if value_name:
+                                        val, _ = w.QueryValueEx(key, value_name)
+                                        p = Path(str(val))
+                                    else:
+                                        # Try default value
+                                        val, _ = w.QueryValueEx(key, "")
+                                        p = Path(str(val))
+                                    if p.is_dir() and (p / "mods").is_dir():
+                                        return str(p)
+                            except OSError:
+                                pass
+        except ImportError:
+            pass
+
+    # 2. Try running MTA processes
     try:
         import psutil
         for proc in psutil.process_iter(["exe"]):
             try:
                 exe = proc.info.get("exe") or ""
-                if "mta" in exe.lower() and exe.endswith(".exe"):
-                    install = Path(exe).parent
-                    # Walk siblings looking for server/mods/deathmatch/resources
-                    for base in (install, install.parent):
-                        candidate = base / "server" / "mods" / "deathmatch" / "resources"
-                        if candidate.exists():
+                if "mta" in exe.lower() and exe.lower().endswith(".exe"):
+                    for candidate in (Path(exe).parent, Path(exe).parent.parent):
+                        if (candidate / "mods").is_dir():
                             return str(candidate)
             except Exception:
                 pass
     except ImportError:
         pass
 
+    # 3. Static path list
+    for p in _MTA_INSTALL_ROOTS:
+        if p.is_dir() and (p / "mods").is_dir():
+            return str(p)
+
+    return ""
+
+
+def find_resources_dir(logger: CleanerLogger | None = None) -> str:
+    """
+    Return the LOCAL MTA client resources directory:
+      {install}\mods\deathmatch\resources\
+
+    This is the folder the user controls — no server access required.
+    Scripts placed here can be started from the MTA F8 console.
+    """
+    install = find_mta_install()
+    if install:
+        rd = Path(install) / "mods" / "deathmatch" / "resources"
+        if rd.exists():
+            return str(rd)
+        # Create it if the parent exists
+        parent = rd.parent
+        if parent.exists():
+            try:
+                rd.mkdir(parents=True, exist_ok=True)
+                return str(rd)
+            except OSError:
+                pass
+
+    # Fallback: any existing path from the old server search
+    old_server_paths = [
+        p / "server" / "mods" / "deathmatch" / "resources"
+        for p in _MTA_INSTALL_ROOTS
+    ]
+    for p in old_server_paths:
+        if p.exists():
+            return str(p)
+
     return ""
 
 
 def list_resources(resources_dir: str) -> list[dict]:
-    """List all resources in the given directory."""
     rd = Path(resources_dir)
     if not rd.exists():
         return []
@@ -90,92 +156,74 @@ def list_resources(resources_dir: str) -> list[dict]:
             meta = item / "meta.xml"
             scripts = list(item.glob("*.lua"))
             resources.append({
-                "name":        item.name,
-                "path":        str(item),
-                "has_meta":    meta.exists(),
-                "script_count": len(scripts),
-                "is_executor": item.name == _EXECUTOR_RESOURCE_NAME,
+                "name":          item.name,
+                "path":          str(item),
+                "has_meta":      meta.exists(),
+                "script_count":  len(scripts),
+                "is_executor":   item.name == _EXECUTOR_RESOURCE,
             })
     return resources
 
 
-# ── resource deployment ───────────────────────────────────────────────────────
+# ── deployment ────────────────────────────────────────────────────────────────
 
-def deploy_script(code: str, script_type: str, resources_dir: str,
-                   logger: CleanerLogger) -> dict[str, Any]:
+def deploy_script(
+    code: str,
+    script_type: str,         # "client" | "server" | "both"
+    resources_dir: str,
+    logger: CleanerLogger,
+) -> dict[str, Any]:
     """
-    Write user Lua code into the sc_executor resource.
-    script_type: "client" | "server" | "both"
-    Returns {"path": ..., "client_written": bool, "server_written": bool}.
+    Write user Lua code into the sc_executor resource folder.
+
+    For script_type "client" (the default / user mode):
+      - Only client.lua is written.
+      - meta.xml references only client.lua — no server.lua needed.
+      - No server access required.
+
+    For script_type "server" or "both":
+      - server.lua is written; meta.xml references it.
+      - Only useful if you have access to the SERVER's resources folder.
     """
-    rd = Path(resources_dir) / _EXECUTOR_RESOURCE_NAME
+    rd = Path(resources_dir) / _EXECUTOR_RESOURCE
     rd.mkdir(parents=True, exist_ok=True)
-
-    # Always write meta.xml
-    (rd / "meta.xml").write_text(_META_XML, encoding="utf-8")
 
     client_written = server_written = False
 
-    if script_type in ("client", "both"):
-        client_lua = _CLIENT_LUA_WRAPPER.format(user_code=code)
-        (rd / "client.lua").write_text(client_lua, encoding="utf-8")
+    if script_type == "client":
+        meta = _META_CLIENT_ONLY
+        (rd / "client.lua").write_text(_CLIENT_HEADER + code, encoding="utf-8")
         client_written = True
+        # Remove stale server.lua if present
+        stale = rd / "server.lua"
+        if stale.exists():
+            stale.unlink(missing_ok=True)
 
-    if script_type in ("server", "both"):
-        server_lua = _SERVER_LUA_WRAPPER.format(user_code=code)
-        (rd / "server.lua").write_text(server_lua, encoding="utf-8")
+    elif script_type == "server":
+        meta = _META_SERVER_ONLY
+        (rd / "server.lua").write_text(_SERVER_HEADER + code, encoding="utf-8")
         server_written = True
+        stale = rd / "client.lua"
+        if stale.exists():
+            stale.unlink(missing_ok=True)
 
-    # If only one side, write empty stubs for the other
-    if not client_written:
-        (rd / "client.lua").write_text(
-            "-- client stub\n", encoding="utf-8"
-        )
-    if not server_written:
-        (rd / "server.lua").write_text(
-            "-- server stub\n", encoding="utf-8"
-        )
+    else:  # "both"
+        meta = _META_BOTH
+        (rd / "client.lua").write_text(_CLIENT_HEADER + code, encoding="utf-8")
+        (rd / "server.lua").write_text(_SERVER_HEADER + code, encoding="utf-8")
+        client_written = server_written = True
+
+    (rd / "meta.xml").write_text(meta, encoding="utf-8")
 
     logger.log("executor_deploy", "executor",
-               f"Deployed {script_type} script to {rd}")
+               f"Deployed {script_type} to {rd}")
     return {
         "path":           str(rd),
+        "resource_name":  _EXECUTOR_RESOURCE,
+        "script_type":    script_type,
         "client_written": client_written,
         "server_written": server_written,
-        "resource_name":  _EXECUTOR_RESOURCE_NAME,
     }
-
-
-def restart_resource_via_rcon(host: str, port: int, password: str,
-                               resource: str, logger: CleanerLogger) -> bool:
-    """
-    Send 'restart <resource>' via MTA RCON (UDP) using ncat or PowerShell.
-    Falls back to a simple TCP socket approach for MTA's HTTP admin interface.
-    """
-    # Try MTA HTTP admin interface (default port 22005)
-    try:
-        import urllib.request, urllib.parse
-        url = f"http://{host}:{port}/ajax/resourcelist"
-        # MTA HTTP interface uses basic auth
-        mgr = urllib.request.HTTPPasswordMgrWithDefaultRealm()
-        mgr.add_password(None, url, "admin", password)
-        handler = urllib.request.HTTPBasicAuthHandler(mgr)
-        opener = urllib.request.build_opener(handler)
-        data = urllib.parse.urlencode({"action": "restart", "resource": resource})
-        req = urllib.request.Request(
-            f"http://{host}:{port}/resourcematch",
-            data=data.encode(), method="POST",
-        )
-        opener.open(req, timeout=5)
-        logger.log("executor_rcon", "executor",
-                   f"Restarted resource {resource} via HTTP admin")
-        return True
-    except Exception:
-        pass
-
-    logger.log("executor_rcon", "executor",
-               f"RCON restart failed for {resource} — use 'restart {resource}' in F8")
-    return False
 
 
 # ── saved scripts ─────────────────────────────────────────────────────────────
@@ -185,14 +233,13 @@ def ensure_scripts_dir():
 
 
 def list_saved_scripts() -> list[dict]:
-    """Return saved Lua scripts from the executor_scripts directory."""
     ensure_scripts_dir()
     scripts = []
     for f in sorted(_SCRIPTS_DIR.glob("*.lua")):
         try:
             size = f.stat().st_size
             code = f.read_text(encoding="utf-8", errors="replace")
-            preview = code.split("\n")[0][:60]
+            preview = code.strip().splitlines()[0][:60] if code.strip() else ""
             scripts.append({
                 "name":    f.stem,
                 "path":    str(f),
@@ -206,13 +253,12 @@ def list_saved_scripts() -> list[dict]:
 
 
 def save_script(name: str, code: str) -> bool:
-    """Save Lua code to a named file."""
     ensure_scripts_dir()
-    safe_name = "".join(c for c in name if c.isalnum() or c in ("_", "-"))
-    if not safe_name:
+    safe = re.sub(r"[^\w\-]", "", name)
+    if not safe:
         return False
     try:
-        (_SCRIPTS_DIR / f"{safe_name}.lua").write_text(code, encoding="utf-8")
+        (_SCRIPTS_DIR / f"{safe}.lua").write_text(code, encoding="utf-8")
         return True
     except OSError:
         return False
@@ -235,3 +281,103 @@ def load_script(name: str) -> str:
         return (_SCRIPTS_DIR / f"{name}.lua").read_text(encoding="utf-8", errors="replace")
     except OSError:
         return ""
+
+
+# ── trigger finder ────────────────────────────────────────────────────────────
+
+# Patterns: (category_label, regex)
+_TRIGGER_PATTERNS: list[tuple[str, re.Pattern]] = [
+    ("addEvent",                re.compile(r'addEvent\s*\(\s*["\']([^"\']+)["\']',               re.IGNORECASE)),
+    ("addEventHandler",         re.compile(r'addEventHandler\s*\(\s*["\']([^"\']+)["\']',        re.IGNORECASE)),
+    ("triggerServerEvent",      re.compile(r'triggerServerEvent\s*\(\s*["\']([^"\']+)["\']',     re.IGNORECASE)),
+    ("triggerClientEvent",      re.compile(r'triggerClientEvent\s*\(\s*["\']([^"\']+)["\']',     re.IGNORECASE)),
+    ("triggerLatentServerEvent",re.compile(r'triggerLatentServerEvent\s*\(\s*["\']([^"\']+)["\']', re.IGNORECASE)),
+    ("triggerLatentClientEvent",re.compile(r'triggerLatentClientEvent\s*\(\s*["\']([^"\']+)["\']', re.IGNORECASE)),
+    ("removeEventHandler",      re.compile(r'removeEventHandler\s*\(\s*["\']([^"\']+)["\']',     re.IGNORECASE)),
+]
+
+_CATEGORY_ORDER = [
+    "addEvent",
+    "addEventHandler",
+    "triggerServerEvent",
+    "triggerClientEvent",
+    "triggerLatentServerEvent",
+    "triggerLatentClientEvent",
+    "removeEventHandler",
+]
+
+
+def find_triggers(search_path: str) -> dict:
+    """
+    Recursively scan *.lua files under search_path for MTA event API calls.
+
+    Returns:
+      {
+        "by_category": {category: [{name, file, line}]},
+        "by_event":    {event_name: [{category, file, line}]},
+        "files_scanned": int,
+        "total": int,
+      }
+    """
+    root = Path(search_path)
+    if not root.exists():
+        return {"by_category": {}, "by_event": {}, "files_scanned": 0, "total": 0}
+
+    by_category: dict[str, list[dict]] = {c: [] for c, _ in _TRIGGER_PATTERNS}
+    by_event:    dict[str, list[dict]] = {}
+    files_scanned = 0
+
+    lua_files = list(root.rglob("*.lua"))
+    for fpath in lua_files:
+        try:
+            text = fpath.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        files_scanned += 1
+        lines = text.splitlines()
+        for lineno, line in enumerate(lines, 1):
+            for cat, pat in _TRIGGER_PATTERNS:
+                for m in pat.finditer(line):
+                    event_name = m.group(1)
+                    entry = {
+                        "name":     event_name,
+                        "category": cat,
+                        "file":     str(fpath.relative_to(root)),
+                        "line":     lineno,
+                        "context":  line.strip()[:120],
+                    }
+                    by_category[cat].append(entry)
+                    by_event.setdefault(event_name, []).append(entry)
+
+    total = sum(len(v) for v in by_category.values())
+    return {
+        "by_category":    by_category,
+        "by_event":       by_event,
+        "files_scanned":  files_scanned,
+        "total":          total,
+    }
+
+
+def build_trigger_snippet(event_name: str, entries: list[dict]) -> str:
+    """Generate a ready-to-deploy client Lua snippet to call a found trigger."""
+    cats = {e["category"] for e in entries}
+    if "triggerServerEvent" in cats:
+        return (
+            f'-- trigger: {event_name}\n'
+            f'addCommandHandler("run_{_safe_cmd(event_name)}", function()\n'
+            f'    triggerServerEvent("{event_name}", localPlayer)\n'
+            f'end)\n'
+        )
+    elif "addEventHandler" in cats or "addEvent" in cats:
+        return (
+            f'-- listen for: {event_name}\n'
+            f'addEventHandler("{event_name}", root, function(...)\n'
+            f'    outputChatBox("[SC] {event_name} fired: " .. tostring(...))\n'
+            f'end)\n'
+        )
+    else:
+        return f'-- {event_name}\ntriggerServerEvent("{event_name}", localPlayer)\n'
+
+
+def _safe_cmd(name: str) -> str:
+    return re.sub(r"[^a-zA-Z0-9_]", "_", name)[:32]

@@ -4445,29 +4445,32 @@ def _lua_editor(initial_code: str = "") -> str | None:
 def menu_executor(logger: CleanerLogger):
     from core import executor as _exc
 
+    _custom_res_dir: str = ""  # user-overridden path
+
     while True:
         header("MTA Lua Executor")
 
-        # Detect resources dir
-        res_dir = _exc.find_resources_dir(logger)
+        # Detect local MTA resources dir
+        res_dir = _custom_res_dir or _exc.find_resources_dir(logger)
         if res_dir:
-            print(f"  {G}Resources dir:{RST} {res_dir}")
+            print(f"  {G}Local MTA resources:{RST} {res_dir}")
         else:
-            print(f"  {Y}Resources dir not found — enter manually below{RST}")
+            print(f"  {Y}Local MTA install not found — set path manually with [5]{RST}")
 
         saved = _exc.list_saved_scripts()
         if saved:
             print(f"  {DIM}Saved scripts: {', '.join(s['name'] for s in saved)}{RST}")
 
         sep()
-        print(f"  {C}[1]{RST} Write / paste Lua code & deploy")
+        print(f"  {C}[1]{RST} Write / paste Lua code & deploy  {DIM}(client-side, no server access needed){RST}")
         print(f"  {C}[2]{RST} Load saved script & deploy")
         print(f"  {C}[3]{RST} Save current code to file")
         print(f"  {C}[4]{RST} List / delete saved scripts")
-        print(f"  {C}[5]{RST} Set resources directory")
+        print(f"  {C}[5]{RST} Set local MTA resources directory")
         print(f"  {C}[0]{RST} Back")
         sep()
-        print(f"  {DIM}After deploy: open MTA F8 console and type  start sc_executor{RST}")
+        print(f"  {DIM}Scripts run client-side — no server access needed.{RST}")
+        print(f"  {DIM}Connect to any server and type  {RST}{B}start sc_executor{RST}{DIM}  in the F8 console.{RST}")
         sep()
 
         c = prompt()
@@ -4481,14 +4484,13 @@ def menu_executor(logger: CleanerLogger):
                 pause()
                 continue
 
-            # Choose script type
-            print(f"\n  {C}[1]{RST} Client  {C}[2]{RST} Server  {C}[3]{RST} Both")
-            st_choice = prompt("Type (1/2/3): ")
-            script_type = {"1": "client", "2": "server", "3": "both"}.get(st_choice, "both")
+            # Client by default; advanced users can pick server/both
+            print(f"\n  Script type — {C}[1]{RST} Client (default)  {C}[2]{RST} Server  {C}[3]{RST} Both")
+            st_choice = prompt("Type [1]: ").strip() or "1"
+            script_type = {"1": "client", "2": "server", "3": "both"}.get(st_choice, "client")
 
-            # Resources dir
             if not res_dir:
-                res_dir = prompt("Resources directory path: ")
+                res_dir = prompt("Local MTA resources path: ")
 
             if not res_dir:
                 err("No resources directory.")
@@ -4497,8 +4499,10 @@ def menu_executor(logger: CleanerLogger):
 
             result = _exc.deploy_script(code, script_type, res_dir, logger)
             ok(f"Deployed to: {result['path']}")
-            print(f"  client.lua written: {result['client_written']}")
-            print(f"  server.lua written: {result['server_written']}")
+            if result["client_written"]:
+                print(f"  {G}client.lua{RST} written")
+            if result["server_written"]:
+                print(f"  {G}server.lua{RST} written")
             print(f"\n  {Y}In MTA F8 console type:{RST}  {B}start sc_executor{RST}")
             pause()
 
@@ -4529,12 +4533,12 @@ def menu_executor(logger: CleanerLogger):
                 pause()
                 continue
 
-            print(f"\n  {C}[1]{RST} Client  {C}[2]{RST} Server  {C}[3]{RST} Both")
-            st_choice = prompt("Type (1/2/3): ")
-            script_type = {"1": "client", "2": "server", "3": "both"}.get(st_choice, "both")
+            print(f"\n  Script type — {C}[1]{RST} Client (default)  {C}[2]{RST} Server  {C}[3]{RST} Both")
+            st_choice = prompt("Type [1]: ").strip() or "1"
+            script_type = {"1": "client", "2": "server", "3": "both"}.get(st_choice, "client")
 
             if not res_dir:
-                res_dir = prompt("Resources directory path: ")
+                res_dir = prompt("Local MTA resources path: ")
 
             if not res_dir:
                 err("No resources directory.")
@@ -4590,8 +4594,11 @@ def menu_executor(logger: CleanerLogger):
             pause()
 
         elif c == "5":
-            new_dir = prompt("Resources directory path: ")
+            print(f"  {DIM}Enter the path to your local MTA resources folder.{RST}")
+            print(f"  {DIM}Example: C:\\Program Files (x86)\\MTA San Andreas 1.6\\mods\\deathmatch\\resources{RST}")
+            new_dir = prompt("Path: ")
             if new_dir and Path(new_dir).exists():
+                _custom_res_dir = new_dir
                 res_dir = new_dir
                 ok(f"Set to: {res_dir}")
             else:
