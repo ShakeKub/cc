@@ -2187,6 +2187,9 @@ def menu_scout(logger: CleanerLogger):
         "DLL_LOAD":        C,
         "DLL_WARN":        Y,
         "FILE_ACCESS":     G,
+        "DNS_QUERY":       C,
+        "PIPE_NEW":        Y,
+        "AUTO_STOP":       R,
     }
     TYPE_LABEL = {
         "CREATE":          "FILE+  ",
@@ -2207,6 +2210,9 @@ def menu_scout(logger: CleanerLogger):
         "DLL_LOAD":        "DLL+   ",
         "DLL_WARN":        "DLL!   ",
         "FILE_ACCESS":     "FOPEN  ",
+        "DNS_QUERY":       "DNS    ",
+        "PIPE_NEW":        "PIPE+  ",
+        "AUTO_STOP":       "STOP   ",
     }
 
     while True:
@@ -2227,6 +2233,7 @@ def menu_scout(logger: CleanerLogger):
         print(f"  {C}[4]{RST} View session report  {DIM}(added / modified / deleted / unchanged){RST}")
         print(f"  {C}[5]{RST} Delete a session")
         print(f"  {C}[8]{RST} Export session to file  {DIM}(HTML nebo JSON){RST}")
+        print(f"  {C}[9]{RST} Compare two sessions    {DIM}(diff souborů a registrů){RST}")
         sep("-")
         print(f"  {C}[6]{RST} Pre-launch scan      {DIM}(inspect existing app traces before running){RST}")
         print(f"  {C}[7]{RST} Protected run         {DIM}(snapshot + net block + diff on exit){RST}")
@@ -2299,21 +2306,45 @@ def menu_scout(logger: CleanerLogger):
                   f"{C}NET{RST}=síť  {C}DLL+{RST}=dll  "
                   f"{G}REG+{RST}=reg přidán  {Y}REG~{RST}=reg změněn  {R}REG-{RST}=reg smazán")
             sep()
-            print(f"  {DIM}Stiskněte Enter pro zastavení{RST}\n")
+            print(f"  {DIM}Enter=zastavit  p+Enter=pauza/pokračovat  auto-stop při ukončení procesu{RST}\n")
 
             stop_flag = threading.Event()
+            cmd_queue: "_queue.Queue[str]" = _queue.Queue()
 
-            def _wait_enter():
-                try:
-                    input()
-                except Exception:
-                    pass
-                stop_flag.set()
+            def _read_cmds():
+                while not stop_flag.is_set():
+                    try:
+                        line = input().strip().lower()
+                        cmd_queue.put(line)
+                    except Exception:
+                        stop_flag.set()
+                        break
 
-            threading.Thread(target=_wait_enter, daemon=True).start()
+            threading.Thread(target=_read_cmds, daemon=True).start()
 
             import queue as _q
             while not stop_flag.is_set():
+                # handle keyboard commands
+                try:
+                    cmd = cmd_queue.get_nowait()
+                    if cmd == "p":
+                        if current.is_paused:
+                            current.resume()
+                            print(f"  {G}[POKRAČUJI]{RST}")
+                        else:
+                            current.pause()
+                            print(f"  {Y}[PAUZA]{RST}  (p+Enter = pokračovat)")
+                    else:
+                        stop_flag.set()
+                        break
+                except _q.Empty:
+                    pass
+
+                # auto-stop when target process died
+                if getattr(current, "_auto_stop_requested", False):
+                    stop_flag.set()
+                    break
+
                 try:
                     ev = current.event_queue.get(timeout=0.2)
                     etype = ev.get("type", "")
@@ -2335,6 +2366,14 @@ def menu_scout(logger: CleanerLogger):
                         extra = f"  pid={ev.get('pid','')}"
                     elif etype == "FILE_ACCESS":
                         extra = f"  pid={ev.get('pid','')}"
+                    elif etype == "DNS_QUERY":
+                        extra = f"  {ev.get('hostname','')}"
+                    elif etype == "PIPE_NEW":
+                        extra = f"  {ev.get('path','')}"
+                    elif etype == "AUTO_STOP":
+                        print(f"  {R}[AUTO-STOP]{RST}  Sledovaný proces ukončen")
+                        stop_flag.set()
+                        break
                     move_str = f"  →  {dest}" if dest else ""
                     print(f"  {DIM}{ev['time']}{RST}  {col}{label}{RST}  {path}{move_str}{extra}")
                 except _q.Empty:
@@ -2343,13 +2382,18 @@ def menu_scout(logger: CleanerLogger):
             current.stop()
             sep("═")
             s = current.get_summary()
+            risk = current.get_risk_score()
+            risk_col = R if risk >= 50 else (Y if risk >= 20 else G)
             ok(f"Session uložena  "
+               f"risk:{risk_col}{risk}/100{RST}  "
                f"fopen:{G}{s['file_access_events']}{RST}  "
                f"files:{G}{s['file_events']}{RST}  "
                f"reg:{Y}{s['registry_events']}{RST}  "
                f"net:{C}{s['network_events']}{RST}  "
                f"proc:{G}{s['process_events']}{RST}  "
-               f"dll:{C}{s['dll_events']}{RST}")
+               f"dll:{C}{s['dll_events']}{RST}  "
+               f"dns:{C}{s.get('dns_events',0)}{RST}  "
+               f"risks:{risk_col}{s.get('risk_flags',0)}{RST}")
             print(f"  {DIM}Exportovat? Použijte možnost [8]{RST}")
             current = None
             pause()
@@ -2517,11 +2561,85 @@ def menu_scout(logger: CleanerLogger):
                 tmp.process_events     = session.get("process_events", [])
                 tmp.download_events    = session.get("download_events", [])
                 tmp.dll_events         = session.get("dll_events", [])
+                tmp.dns_events         = session.get("dns_events", [])
+                tmp.pipe_events        = session.get("pipe_events", [])
+                tmp.risk_flags         = session.get("risk_flags", [])
+                tmp.file_hashes        = session.get("file_hashes", {})
 
                 saved = tmp.export_html(out_path) if fmt == "1" else tmp.export_json(out_path)
                 ok(f"Exportováno → {saved}")
             except Exception as e:
                 err(str(e))
+            pause()
+
+        # ── [9] Compare two sessions ─────────────────────────
+        elif c == "9":
+            sessions = ScoutSession.load_sessions(str(profile_path))
+            if len(sessions) < 2:
+                err("Potřebuji alespoň dvě uložené session.")
+                pause()
+                continue
+            sep()
+            print(f"  {'Session ID':<20}  {'Label':<18}  Events")
+            sep("-")
+            for s in sessions:
+                sm = s.get("summary", {})
+                print(f"  {s.get('session_id',''):<20}  "
+                      f"{s.get('app_name',''):<18}  "
+                      f"{sm.get('total_events', 0)}")
+            sep()
+            sid_a = prompt("Session ID A: ").strip()
+            sid_b = prompt("Session ID B: ").strip()
+            sess_a = next((s for s in sessions if s.get("session_id") == sid_a), None)
+            sess_b = next((s for s in sessions if s.get("session_id") == sid_b), None)
+            if not sess_a or not sess_b:
+                err("Session(s) not found."); pause(); continue
+            sep()
+            print(f"  {B}Porovnání: {sid_a}  vs  {sid_b}{RST}")
+            sep("-")
+
+            def _paths_set(sess, key):
+                return {e.get("path","") for e in sess.get(key, [])}
+
+            def _compare_list(label, col_a, set_a, set_b):
+                only_a = set_a - set_b
+                only_b = set_b - set_a
+                both   = set_a & set_b
+                print(f"  {B}{label}{RST}  A={len(set_a)}  B={len(set_b)}  "
+                      f"obě={len(both)}  jen A={G}{len(only_a)}{RST}  jen B={Y}{len(only_b)}{RST}")
+                for p in sorted(only_a)[:8]:
+                    print(f"    {G}A only{RST}  {p[:80]}")
+                for p in sorted(only_b)[:8]:
+                    print(f"    {Y}B only{RST}  {p[:80]}")
+                if max(len(only_a), len(only_b)) > 8:
+                    print(f"    {DIM}… (zobrazeno 8 z každé strany){RST}")
+
+            _compare_list("Soubory (create/modify)",
+                          G,
+                          _paths_set(sess_a, "file_events"),
+                          _paths_set(sess_b, "file_events"))
+
+            _compare_list("Soubory (přístup proc.)",
+                          G,
+                          _paths_set(sess_a, "file_access_events"),
+                          _paths_set(sess_b, "file_access_events"))
+
+            reg_a = {e.get("key","") for e in sess_a.get("registry_events", [])}
+            reg_b = {e.get("key","") for e in sess_b.get("registry_events", [])}
+            _compare_list("Registr", Y, reg_a, reg_b)
+
+            net_a = {e.get("remote","") for e in sess_a.get("network_events", [])}
+            net_b = {e.get("remote","") for e in sess_b.get("network_events", [])}
+            _compare_list("Síť (remote)", C, net_a, net_b)
+
+            dns_a = {e.get("hostname","") for e in sess_a.get("dns_events", [])}
+            dns_b = {e.get("hostname","") for e in sess_b.get("dns_events", [])}
+            _compare_list("DNS dotazy", C, dns_a, dns_b)
+
+            sep()
+            ra = sess_a.get("summary",{}).get("risk_score", "?")
+            rb = sess_b.get("summary",{}).get("risk_score", "?")
+            print(f"  Risk score:  A={R}{ra}{RST}  B={Y}{rb}{RST}")
             pause()
 
         # ── [6] Pre-launch scan ──────────────────────────────
