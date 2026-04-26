@@ -17,7 +17,7 @@ python main.py
 
 ## Menu
 
-The main menu is organized into six categories across 45 options.
+The main menu is organized into five categories.
 
 ### Cleaning
 | # | Feature | Description |
@@ -58,6 +58,8 @@ The main menu is organized into six categories across 45 options.
 | 32 | Performance Boost | One-click speed-up: kill bloat apps, trim RAM, High Performance power plan, disable animations, stop heavy services |
 | 33 | Environment Variables | View and edit user and system environment variables; broadcasts changes live |
 | 34 | Firewall Rules | List, toggle, and delete Windows Firewall rules filtered by direction and state |
+| 44 | Factory Setup Wizard | New-PC provisioning profiles (Dev/Gaming/Office/Family): optional restore checkpoint, app bundle install from manifest, smart startup/services optimization, power-plan target |
+| 45 | Tweaks Center | Essential + advanced Windows tweaks, preference toggles, and performance-plan actions (with cautions for high-impact operations) |
 | 46 | Package Manager | Install, uninstall, upgrade packages via winget and Chocolatey; show upgradable list |
 | 49 | App Manager | List running user apps with CPU/RAM/connections; kill or block/unblock internet per process |
 
@@ -86,108 +88,6 @@ The main menu is organized into six categories across 45 options.
 | 42 | Ad Blocker | Hosts-based ad and tracker blocking — 80+ domains, toggle on/off, no external downloads |
 | 43 | Wake-on-LAN | Send magic packets to saved or ad-hoc MAC addresses via UDP broadcast |
 
-### Gaming
-| # | Feature | Description |
-|---|---------|-------------|
-| 44 | Gaming Hub | MTA San Andreas serial spoofer (hardware ID) and FiveM identity wipe |
-| 45 | MTA Lua Executor | Write, edit, save, and deploy Lua scripts as in-game resources on an MTA server |
-
----
-
-## Tutorial: MTA Serial Spoofer
-
-### How it works
-
-MTA San Andreas does not store your serial anywhere — it **computes it on every launch** from two Windows hardware identifiers:
-
-| Registry key | Value name |
-|---|---|
-| `HKLM\SOFTWARE\Microsoft\Cryptography` | `MachineGuid` |
-| `HKLM\SYSTEM\CurrentControlSet\Control\IDConfigDB\Hardware Profiles\0001` | `HwProfileGuid` |
-
-Spoofing your serial means replacing those two GUIDs with random values before launching MTA. Your original values are backed up automatically so you can restore them at any time.
-
-### Step-by-step
-
-1. **Run System Cleaner as Administrator** (required for HKLM registry writes).
-2. From the main menu press **`44`** → Gaming Hub.
-3. The screen shows your current hardware IDs and whether a backup exists.
-4. Press **`m1`** → **Spoof** — two new random GUIDs are written. A backup is saved to `mta_hwid_backup.json`.
-5. **Launch MTA San Andreas.** It will compute a new serial from the spoofed GUIDs.
-6. When you want your original serial back, press **`m2`** → **Restore** — the backup values are written back.
-
-> **Note:** The spoof persists through reboots until you restore. Use `[m2]` whenever you want to revert.
-
-### FiveM
-
-FiveM stores identity tokens in cached files rather than computing them from hardware. Use:
-
-- **`f1`** → Clear identity tokens (`ros_id.dat`, game-storage DB) — gives you a new FiveM identity.
-- **`f2`** → Full cache wipe — removes all cached FiveM data.
-
----
-
-## Tutorial: MTA Lua Executor
-
-The Executor lets you write Lua scripts and deploy them as a resource on an MTA San Andreas **server**. Once deployed you start the resource from the MTA F8 console — no server restart needed.
-
-### Requirements
-
-- Access to the MTA server's `resources` directory (local or network path).
-- The MTA server must be running.
-
-### Step-by-step
-
-1. From the main menu press **`45`** → MTA Lua Executor.
-2. If the tool detects your resources directory automatically it shows the path at the top. If not, press **`5`** and paste the path manually (e.g. `C:\MTA\server\mods\deathmatch\resources`).
-3. Press **`1`** → **Write / paste Lua code** — the editor window opens.
-
-#### Using the code editor
-
-The editor shows your script with line numbers inside a framed window:
-
-```
-  ┌─ Lua Editor ──────────────────────────────────┐
-  │   1  outputChatBox("Hello!", root, 255, 255, 0)
-  │   2  
-  └────────────────────────────────────────────────┘
-  lua> _
-```
-
-| Command | Action |
-|---|---|
-| Type any text + Enter | Append a new line |
-| `.e 2 new content` | Replace line 2 with `new content` |
-| `.d 2` | Delete line 2 |
-| `.ins 2` | Insert a new line before line 2 (prompts for content) |
-| `.clear` | Remove all lines |
-| `.done` | Finish editing and continue |
-| `.cancel` | Discard changes and go back |
-
-4. After typing `.done`, choose the script target:
-   - **`1`** Client-side
-   - **`2`** Server-side
-   - **`3`** Both
-
-5. The tool creates `resources/sc_executor/` containing `meta.xml`, `client.lua`, and `server.lua`.
-
-6. **In MTA F8 console** (press F8 in-game or in the server console) type:
-   ```
-   start sc_executor
-   ```
-   The resource loads immediately. To reload after a code change:
-   ```
-   restart sc_executor
-   ```
-
-### Saving and reusing scripts
-
-- **`3`** — Write a new script and save it under a name (alphanumeric, `-`, `_`).
-- **`2`** — Pick a saved script, optionally edit it in the editor, then deploy.
-- **`4`** — List all saved scripts, view previews, delete ones you no longer need.
-
-Scripts are stored as `.lua` files in the `executor_scripts/` directory next to `main.py`.
-
 ---
 
 ## Tutorial: App Manager (option 49)
@@ -203,6 +103,49 @@ Scripts are stored as `.lua` files in the `executor_scripts/` directory next to 
 6. **`k <number>`** kills the process immediately.
 
 The block rule persists through reboots. It is visible in Windows Defender Firewall → Advanced Settings → Outbound Rules.
+
+---
+
+## Tutorial: Tweaks Center (option 45)
+
+Tweaks Center is a controlled workflow for Windows tweaks with preview, compatibility checks, conflict hints, undo support, and profile management.
+
+### Recommended flow
+
+1. From the main menu press **`3`** (Tools) → **`45`** Tweaks Center.
+2. Choose a category:
+   - **`1`** Essential Tweaks
+   - **`2`** Advanced Tweaks
+   - **`3`** Customize Preferences
+   - **`4`** Performance Plans
+3. Preview first:
+   - Use **`p 1,3`** to run **dry-run only** for selected tweaks.
+   - Dry-run shows planned actions, admin/restart requirements, and compatibility notes.
+4. Apply changes:
+   - Use **`n`** (single), **`a 1,3`** (selected), or **`all`**.
+   - The app asks for confirmation after preview.
+5. Review outcomes:
+   - Batch output includes per-tweak status and benchmark delta (when available).
+   - Benchmark reports are saved in `logs/tweak_benchmark_*.json`.
+
+### Search, favorites, and profiles
+
+- **`5` Search Tweaks**: find tweaks quickly and apply/preview directly from results.
+- **`6` Favorites**: store your regular set and re-apply them in one pass.
+- **`7` Profile Manager**:
+  - Save profile from keys or from favorites.
+  - Apply, export, import, and delete profiles.
+  - Local profile files are stored in `profiles/tweak_profiles/`.
+
+### Undo and restart dashboard
+
+- **`8` Undo & Restart Dashboard** provides:
+  - Undo last reversible change.
+  - Undo last reversible batch.
+  - Pending restart list and clear action.
+  - Recent undo history.
+
+> Note: Not every tweak is reversible. High-impact or destructive actions may be marked as non-reversible.
 
 ---
 
@@ -258,8 +201,6 @@ cc/
 ├── config.json           # Cleaning profiles and language setting
 ├── requirements.txt
 ├── wol_devices.json      # Saved Wake-on-LAN devices (auto-created)
-├── mta_hwid_backup.json  # MTA hardware ID backup (auto-created on first spoof)
-├── executor_scripts/     # Saved Lua scripts (auto-created)
 ├── locales/
 │   ├── en.json           # English strings
 │   └── cs.json           # Czech strings
@@ -304,11 +245,10 @@ cc/
 │   ├── wol.py            # Wake-on-LAN magic packet sender
 │   ├── adblocker.py      # Hosts-based ad and tracker blocker
 │   ├── netspeed.py       # Network speed test (ping, DNS, download)
-│   ├── gaming.py         # MTA serial spoofer and identity wipe
-│   ├── executor.py       # MTA Lua resource deployer
 │   ├── appmgr.py         # Running app list + per-process firewall block/unblock
 │   ├── sandbox.py        # Filesystem+registry snapshot, diff, protected app launch
 │   ├── pkgmgr.py         # Package Manager (winget + Chocolatey)
+│   ├── tweaks.py         # Tweaks Center (essential, advanced, preferences, performance)
 │   ├── fileencrypt.py    # AES-256-GCM file/folder encryption
 │   └── drivermgr.py      # Driver Manager (WMI PnP + driverquery)
 ├── profiles/             # Saved tracer and scout session files (JSON)
@@ -317,8 +257,13 @@ cc/
 
 ## Notes
 
-- **Admin rights** are required for RAM optimization, service management, system restore points, registry writes outside HKCU, editing the hosts file, firewall rule changes, the MTA serial spoofer, and blocking app internet access.
+- **Admin rights** are required for RAM optimization, service management, system restore points, registry writes outside HKCU, editing the hosts file, firewall rule changes, and blocking app internet access.
 - **App Manager** blocks outbound internet by adding a Windows Firewall rule named `SC_BLOCK_<exe>`. Rules are visible in Windows Firewall advanced settings and survive reboots until removed.
+- **Factory Setup Wizard** runs profile-based provisioning for fresh systems and can create a restore checkpoint before changes.
+- **Tweaks Center** includes dry-run previews, compatibility/conflict checks, undo dashboard, restart tracking, search/favorites, and profile import/export.
+- **Manifest installs** are supported in Package Manager (`.json`): create templates, install custom manifests, or run built-in bundles.
+- **Smart Startup/Services optimizer** provides impact-based recommendations first, then applies selected profiles with reversible actions.
+- **Audit trail** is persistent across sessions (`logs/audit_trail.jsonl`) and exportable via Logs & Reports as TXT/JSON.
 - **Protected Run** (App Tracer / Scout Mode) takes a filesystem+registry snapshot before the app launches and diffs it after — showing exactly which files were added, modified, or deleted. Optionally blocks the app's network during the run.
 - **Pre-launch Scan** runs the static AppTracer against an app name before you start it — showing existing files, registry keys, services, and scheduled tasks it already has on disk.
 - **Ad Blocker** writes entries to `C:\Windows\System32\drivers\etc\hosts` between clearly marked section markers — disabling removes only those lines.
@@ -326,8 +271,6 @@ cc/
 - **Scout Mode** uses `watchdog` for filesystem monitoring and `psutil` for process/network polling. It saves sessions to `profiles/scout_*.json`.
 - **Wake-on-LAN** devices are saved to `wol_devices.json` in the project directory.
 - **Language** defaults to English. Switch to Czech via option 31; the setting persists in `config.json`.
-- **MTA Spoofer** requires admin rights and backs up original hardware IDs to `mta_hwid_backup.json` before any change.
-- **MTA Executor** deploys scripts to the server's `resources/` folder. The server must be running for `start sc_executor` to work.
 
 ## License
 

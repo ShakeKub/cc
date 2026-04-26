@@ -203,6 +203,8 @@ def _menu_categories():
             ("32", t("menu.perf_boost")),
             ("33", t("menu.env_vars")),
             ("34", t("menu.firewall")),
+            ("44", t("menu.factory_wizard")),
+            ("45", t("menu.tweaks")),
             ("46", t("menu.pkg_mgr")),
             ("49", t("menu.app_mgr")),
         ]),
@@ -227,15 +229,11 @@ def _menu_categories():
             ("42", t("menu.ad_blocker")),
             ("43", t("menu.wol")),
         ]),
-        (t("cat.gaming"), [
-            ("44", t("menu.gaming")),
-            ("45", t("menu.executor")),
-        ]),
     ]
 
 
 # Category icons for the home screen
-_CAT_ICONS = ["⚙", "📁", "🔧", "📊", "🖥", "🎮"]
+_CAT_ICONS = ["⚙", "📁", "🔧", "📊", "🖥"]
 
 
 def _print_home_categories(categories):
@@ -265,11 +263,13 @@ def _menu_category_view(cat_label: str, items: list, logger: CleanerLogger):
         sep()
 
         COL_W = 32
-        for i in range(0, len(items), 2):
-            num_l, lbl_l = items[i]
+        display_items = [(str(i + 1), label) for i, (_, label) in enumerate(items)]
+
+        for i in range(0, len(display_items), 2):
+            num_l, lbl_l = display_items[i]
             left = f"  {C}[{num_l:>2}]{RST} {lbl_l}"
-            if i + 1 < len(items):
-                num_r, lbl_r = items[i + 1]
+            if i + 1 < len(display_items):
+                num_r, lbl_r = display_items[i + 1]
                 right = f"  {C}[{num_r:>2}]{RST} {lbl_r}"
             else:
                 right = ""
@@ -283,7 +283,20 @@ def _menu_category_view(cat_label: str, items: list, logger: CleanerLogger):
         if choice in ("0", "b", "back"):
             return
 
-        action = _DISPATCH.get(choice)
+        action = None
+        if choice.isdigit():
+            idx = int(choice) - 1
+            if 0 <= idx < len(items):
+                action_key = items[idx][0]
+                action = _DISPATCH.get(action_key)
+
+        # Backward-compatible fallback for legacy IDs/aliases within this category.
+        if action is None:
+            normalized = choice.strip().lower()
+            allowed = {key.lower() for key, _ in items}
+            if normalized in allowed:
+                action = _DISPATCH.get(choice) or _DISPATCH.get(choice.lower()) or _DISPATCH.get(choice.upper())
+
         if action:
             action(logger)
         else:
@@ -338,8 +351,8 @@ _DISPATCH = {
     "41": lambda l: menu_dns_hosts(l),
     "42": lambda l: menu_adblocker(l),
     "43": lambda l: menu_wol(l),
-    "44": lambda l: menu_gaming(l),
-    "45": lambda l: menu_executor(l),
+    "44": lambda l: menu_factory_wizard(l),
+    "45": lambda l: menu_tweaks(l),
     "46": lambda l: menu_pkgmgr(l),
     "47": lambda l: menu_fileencrypt(l),
     "48": lambda l: menu_drivermgr(l),
@@ -1099,6 +1112,8 @@ def menu_optimizer(logger: CleanerLogger):
         print(f"  {C}[4]{RST} {t('opt.en_svc')}")
         print(f"  {C}[5]{RST} {t('opt.plans')}")
         print(f"  {C}[6]{RST} {t('opt.switch_plan')}")
+        print(f"  {C}[7]{RST} Smart Startup/Services analysis  {DIM}(impact + recommendations){RST}")
+        print(f"  {C}[8]{RST} Apply Startup/Services profile   {DIM}(safe/balanced/aggressive){RST}")
         print(f"  {C}[0]{RST} {t('menu.back')}")
         sep()
         c = prompt()
@@ -1173,6 +1188,122 @@ def menu_optimizer(logger: CleanerLogger):
                 ok(t("opt.plan_ok")) if set_power_plan(match["guid"], logger) else err(t("opt.plan_fail"))
             except (ValueError, IndexError):
                 err("Invalid number.")
+            pause()
+
+        elif c == "7":
+            mode = prompt("Profile [safe/balanced/aggressive] [balanced]: ").strip().lower() or "balanced"
+            try:
+                from core.factory import analyze_startup_services
+
+                analysis = analyze_startup_services(logger, mode=mode)
+                sep()
+                print(f"  {B}Smart Optimizer Analysis{RST}  profile={analysis['mode']}")
+
+                st = analysis["startup"]
+                sv = analysis["services"]
+
+                print(f"\n  {B}Startup Entries{RST}")
+                print(f"    Total entries           : {st['total']}")
+                print(f"    Recommended to disable  : {Y}{st['to_disable']}{RST}")
+                print(f"    Estimated boot gain     : {G}{st['estimated_boot_gain_ms']/1000:.1f}s{RST}")
+
+                print(f"\n  {B}Services{RST}")
+                print(f"    Total services          : {sv['total']}")
+                print(f"    Recommended to disable  : {Y}{sv['to_disable']}{RST}")
+
+                print(f"\n  {B}Top Startup Recommendations{RST}")
+                shown = 0
+                for r in st["recommendations"]:
+                    if r["action"] != "disable":
+                        continue
+                    shown += 1
+                    ic = G if r["impact"] == "low" else Y if r["impact"] == "medium" else R
+                    sus = f" {R}[SUS]{RST}" if r.get("suspicious") else ""
+                    print(
+                        f"    {shown:>2}. {r['name'][:32]:<32}  impact={ic}{r['impact']}{RST}"
+                        f"  gain~{r['estimated_gain_ms']}ms{sus}"
+                    )
+                    print(f"        {DIM}{r['reason']}{RST}")
+                    if shown >= 8:
+                        break
+
+                print(f"\n  {B}Top Service Recommendations{RST}")
+                shown = 0
+                for r in sv["recommendations"]:
+                    if r["action"] != "disable":
+                        continue
+                    shown += 1
+                    ic = G if r["impact"] == "low" else Y if r["impact"] == "medium" else R
+                    print(
+                        f"    {shown:>2}. {r['display_name'][:32]:<32}  impact={ic}{r['impact']}{RST}"
+                        f"  category={r['category']}"
+                    )
+                    print(f"        {DIM}{r['reason']}{RST}")
+                    if r.get("risk_note"):
+                        print(f"        {Y}Risk:{RST} {r['risk_note']}")
+                    if shown >= 8:
+                        break
+
+            except Exception as e:
+                err(str(e))
+            pause()
+
+        elif c == "8":
+            mode = prompt("Apply profile [safe/balanced/aggressive] [balanced]: ").strip().lower() or "balanced"
+            startup_limit_raw = prompt("Max startup entries to disable [12]: ").strip()
+            service_limit_raw = prompt("Max services to disable [8]: ").strip()
+            try:
+                startup_limit = int(startup_limit_raw) if startup_limit_raw else 12
+            except ValueError:
+                startup_limit = 12
+            try:
+                service_limit = int(service_limit_raw) if service_limit_raw else 8
+            except ValueError:
+                service_limit = 8
+
+            warn(
+                "This will apply startup/services optimizations with explanations in the report. "
+                "All actions are reversible from Startup/Optimizer menus."
+            )
+            if prompt(t("prompt.type_yes_confirm")).upper() not in ("YES", "ANO"):
+                continue
+
+            try:
+                from core.factory import apply_startup_services
+
+                result = apply_startup_services(
+                    logger,
+                    mode=mode,
+                    startup_limit=max(0, startup_limit),
+                    service_limit=max(0, service_limit),
+                )
+
+                sep()
+                ok(f"Smart optimizer applied (mode={result['mode']}).")
+                print(
+                    f"  Startup  : applied {len(result['startup']['applied'])}"
+                    f"  failed {len(result['startup']['failed'])}"
+                )
+                print(
+                    f"  Services : applied {len(result['services']['applied'])}"
+                    f"  failed {len(result['services']['failed'])}"
+                )
+
+                if result["startup"]["applied"]:
+                    print(f"\n  {B}Startup disabled:{RST}")
+                    for name in result["startup"]["applied"][:10]:
+                        print(f"    {G}•{RST} {name}")
+                if result["services"]["applied"]:
+                    print(f"\n  {B}Services disabled:{RST}")
+                    for name in result["services"]["applied"][:10]:
+                        print(f"    {G}•{RST} {name}")
+                if result["startup"]["failed"] or result["services"]["failed"]:
+                    print(f"\n  {Y}Some actions failed (usually admin rights or policy restrictions).{RST}")
+                    for name in (result["startup"]["failed"] + result["services"]["failed"])[:10]:
+                        print(f"    {R}•{RST} {name}")
+
+            except Exception as e:
+                err(str(e))
             pause()
 
 
@@ -1976,7 +2107,13 @@ def menu_logs(logger: CleanerLogger):
         print(f"  Actions taken  : {stats.get('actions_taken',0)}")
         print(f"  Errors         : {stats.get('errors',0)}")
         sep()
-        print(f"  {C}[1]{RST} Export TXT   {C}[2]{RST} Export JSON   {C}[3]{RST} Show last 20 entries   {C}[0]{RST} Back")
+        print(f"  {C}[1]{RST} Export session TXT")
+        print(f"  {C}[2]{RST} Export session JSON")
+        print(f"  {C}[3]{RST} Show last 20 session entries")
+        print(f"  {C}[4]{RST} Export AUDIT TXT  {DIM}(persistent cross-session trail){RST}")
+        print(f"  {C}[5]{RST} Export AUDIT JSON")
+        print(f"  {C}[6]{RST} Show last 25 audit events")
+        print(f"  {C}[0]{RST} Back")
         sep()
         c = prompt()
         if c == "0": break
@@ -1994,6 +2131,30 @@ def menu_logs(logger: CleanerLogger):
                 ts = str(e.get("timestamp",""))[-8:]
                 sym = f"{G}✓{RST}" if e.get("success") else f"{R}✗{RST}"
                 print(f"  {ts}  [{sym}]  {e.get('action',''):<25}  {e.get('details','')[:50]}")
+            pause()
+        elif c == "4":
+            p = logger.export_audit_txt()
+            ok(f"Saved: {p}")
+            pause()
+        elif c == "5":
+            p = logger.export_audit_json()
+            ok(f"Saved: {p}")
+            pause()
+        elif c == "6":
+            sep()
+            rows = logger.tail_audit(limit=25)
+            if not rows:
+                warn("No audit events yet.")
+            else:
+                for e in rows:
+                    ts = str(e.get("timestamp", ""))[-8:]
+                    ok_flag = bool(e.get("success", False))
+                    sev = str(e.get("severity", "info")).upper()
+                    evt = str(e.get("event", ""))
+                    cat = str(e.get("category", ""))
+                    details = str(e.get("details", ""))[:72]
+                    marker = f"{G}OK{RST}" if ok_flag else f"{R}FAIL{RST}"
+                    print(f"  {ts}  [{marker}] [{sev:<7}] [{cat:<10}] {evt:<26} {details}")
             pause()
 
 
@@ -4216,760 +4377,6 @@ def menu_wol(logger: CleanerLogger):
             pause()
 
 
-# ── GAMING ───────────────────────────────────────────────────────────────────
-
-def _menu_spoofer(logger: CleanerLogger):
-    from core.gaming import (
-        find_mta_processes, kill_mta_processes,
-        read_serial_registry, write_serial_registry, generate_mta_serial,
-        backup_serial, restore_serial, serial_backup_exists,
-        spoof_serial, read_cachechecksum, delete_cachechecksum,
-        get_mta_cache_targets, clean_mta_cache,
-        reset_network, full_reset,
-        hrajeme_skimo_rp, restore_hrajeme, hrajeme_backup_exists,
-        get_hardware_info, mta_diagnostics,
-        read_gta_sa_serial,
-    )
-    while True:
-        header("Gaming Hub — MTA Spoofer")
-
-        # ── running MTA processes ──
-        mta_procs = find_mta_processes()
-        if mta_procs:
-            for p in mta_procs:
-                print(f"  {R}● Running{RST}  {p['name']}  PID {p['pid']}  {DIM}{p['exe']}{RST}")
-            print(f"  {Y}  MTA must be closed before spoofing — use [s1]/[hrp] to auto-kill{RST}")
-        else:
-            print(f"  {G}● MTA not running{RST}  {DIM}(safe to spoof){RST}")
-
-        # ── current MTA serial ──
-        serials = read_serial_registry()
-        sep("-")
-        print(f"  {B}MTA Serial{RST}")
-        for label, val in serials.items():
-            colour = C if val != "(not found)" else DIM
-            marker = f"{G}✓{RST}" if val != "(not found)" else f"{DIM}–{RST}"
-            print(f"    {marker} {label:<18} {colour}{val}{RST}")
-
-        # ── GTA:SA CD key ──
-        gta_serials = read_gta_sa_serial()
-        if any(v != "(not found)" for v in gta_serials.values()):
-            print(f"  {B}GTA:SA CD Key{RST}")
-            for label, val in gta_serials.items():
-                colour = C if val != "(not found)" else DIM
-                print(f"    {DIM}{label:<30}{RST}  {colour}{val}{RST}")
-
-        # ── cachechecksum ──
-        checksums = read_cachechecksum()
-        if checksums:
-            print(f"  {B}Cachechecksum{RST}  {DIM}(source of serial){RST}")
-            for ver, val in checksums.items():
-                print(f"    {DIM}{ver:<6}{RST}  {val[:40]}…")
-
-        if serial_backup_exists():
-            print(f"    {Y}[backup on disk — restore available]{RST}")
-
-        # ── cache preview ──
-        cache_targets = get_mta_cache_targets()
-        sep("-")
-        print(f"  {B}Cache / Logs{RST}  {DIM}{len(cache_targets)} targets{RST}")
-        sep("-")
-
-        print(f"  {C}[s1]{RST}  Spoof serial      — new cachechecksum + Serial in registry")
-        print(f"  {C}[s2]{RST}  Restore serial     — write original back from backup")
-        print(f"  {C}[s3]{RST}  Custom serial      — enter your own 32-char hex")
-        print(f"  {C}[s4]{RST}  Delete checksum    — remove cachechecksum (force MTA regen)")
-        print(f"  {C}[c1]{RST}  Clean MTA cache    — logs, resource-cache, report dirs")
-        print(f"  {C}[n1]{RST}  Flush DNS          — ipconfig /flushdns")
-        print(f"  {C}[n2]{RST}  Full network reset — DNS + Winsock + TCP/IP  {Y}[admin]{RST}")
-        print(f"  {C}[all]{RST} All-in-one         — new serial + cache + DNS flush")
-        sep("-")
-        print(f"  {G}{B}[hrp]{RST} {B}HrajemeSkimoRP{RST}   — full identity reset: HWID + MAC + serial + cache + network  {Y}[admin]{RST}")
-        print(f"  {C}[hrr]{RST} Restore HrajemeSkimoRP backup")
-        sep("-")
-        print(f"  {C}[md]{RST}  Diagnostics        — full registry + cache dump")
-        print(f"  {C}[0]{RST}   {t('menu.back')}")
-        sep()
-        cmd = prompt().strip().lower()
-
-        if cmd == "0":
-            break
-
-        # ── serial spoof via cachechecksum ──
-        elif cmd == "s1":
-            result = spoof_serial(logger)
-            print()
-            # killed processes
-            if result["killed"]:
-                for p in result["killed"]:
-                    ok(f"Killed  {p['name']}  PID {p['pid']}")
-            else:
-                print(f"  {DIM}No MTA/GTA processes were running{RST}")
-            print()
-            # old → new serial comparison
-            old_s = result["old_serials"]
-            new_s = result["serial"]
-            print(f"  {B}Serial change:{RST}")
-            for label, old_val in old_s.items():
-                old_col = DIM if old_val == "(not found)" else Y
-                print(f"    {label:<18}  {old_col}{old_val}{RST}  →  {G}{new_s}{RST}")
-            print()
-            ok(f"Checksum : {DIM}{result['checksum']}{RST}")
-            print()
-            for label, wrote in result["serial_results"].items():
-                if wrote: ok(f"Written   {label}")
-                else:     err(f"Failed    {label}  (need admin for HKLM)")
-            for ver, wrote in result["checksum_results"].items():
-                if wrote: ok(f"Checksum  {ver}")
-                else:     err(f"Checksum failed: {ver}")
-            warn("Launch MTA — new serial takes effect immediately.")
-            pause()
-
-        elif cmd == "s2":
-            if not serial_backup_exists():
-                err("No backup found — run [s1] first."); pause(); continue
-            warn("Restores original serial to all registry locations.")
-            if prompt(t("prompt.type_yes")).upper() not in ("YES", "ANO"):
-                continue
-            result = restore_serial(logger)
-            if result["ok"]:
-                for line in result["restored"]:
-                    ok(line)
-                warn("Close MTA and reopen — original serial restored.")
-            else:
-                err(f"Restore failed: {result.get('error','')} {'; '.join(result.get('errors',[]))}")
-            pause()
-
-        elif cmd == "s3":
-            custom = prompt("Enter 32 hex chars (0-9, A-F): ").strip().upper()
-            if len(custom) != 32 or not all(c in "0123456789ABCDEF" for c in custom):
-                err("Invalid — must be exactly 32 hex characters."); pause(); continue
-            backup_serial(logger)
-            results = write_serial_registry(custom, logger)
-            for label, wrote in results.items():
-                if wrote: ok(f"Written to {label}")
-                else:     err(f"Failed: {label}")
-            warn("Close MTA and reopen — serial takes effect on next launch.")
-            pause()
-
-        elif cmd == "s4":
-            warn("Deletes cachechecksum — MTA will regenerate it on next launch.")
-            if prompt(t("prompt.type_yes")).upper() not in ("YES", "ANO"):
-                continue
-            deleted = delete_cachechecksum(logger)
-            if deleted:
-                ok(f"Deleted from: {', '.join(deleted)}")
-            else:
-                info("No cachechecksum entries found.")
-            pause()
-
-        # ── cache ──
-        elif cmd == "c1":
-            if not cache_targets:
-                info("No cache directories found."); pause(); continue
-            print(f"\n  {len(cache_targets)} target(s):")
-            for desc, path in cache_targets:
-                print(f"    {DIM}{desc}  {path}{RST}")
-            if prompt(t("prompt.type_yes_confirm")).upper() not in ("YES", "ANO"):
-                continue
-            result = clean_mta_cache(logger)
-            ok(f"Cleaned {result['cleaned']}  skipped {result['skipped']}  errors {len(result['errors'])}")
-            for e_msg in result["errors"][:5]:
-                err(e_msg)
-            pause()
-
-        # ── network ──
-        elif cmd == "n1":
-            for desc, success, out in reset_network({"dns": True}, logger):
-                ok(desc) if success else err(f"{desc}: {out}")
-            pause()
-
-        elif cmd == "n2":
-            warn("Winsock and TCP/IP reset require admin and a reboot to complete.")
-            if prompt(t("prompt.type_yes")).upper() not in ("YES", "ANO"):
-                continue
-            for desc, success, out in reset_network({"dns": True, "winsock": True, "tcpip": True}, logger):
-                ok(desc) if success else err(f"{desc}: {out}")
-            warn("Reboot recommended to complete the reset.")
-            pause()
-
-        # ── all-in-one ──
-        elif cmd == "all":
-            warn("New serial (via cachechecksum) + clean cache + flush DNS.")
-            if prompt(t("prompt.type_yes_confirm")).upper() not in ("YES", "ANO"):
-                continue
-            result = full_reset(logger)
-            ok(f"Serial: {C}{result['serial']}{RST}")
-            c = result["cache"]
-            ok(f"Cache : {c['cleaned']} cleaned, {c['skipped']} skipped")
-            for desc, success, _ in result["network"]:
-                ok(desc) if success else err(desc)
-            warn("Close MTA and reopen.")
-            pause()
-
-        # ── HrajemeSkimoRP ──
-        elif cmd == "hrp":
-            clr()
-            print(f"\n  {G}{B}HrajemeSkimoRP — Full Identity Reset{RST}\n")
-            print(f"  {Y}Will change via WMI + registry (wmi + pywin32 + winreg, no kernel driver):{RST}")
-            print(f"    {C}OS identifiers{RST}")
-            print(f"      • MachineGuid     HKLM\\SOFTWARE\\Microsoft\\Cryptography")
-            print(f"      • HwProfileGuid   hardware profile GUID")
-            print(f"      • MachineId       SQMClient telemetry GUID")
-            print(f"      • ProductId       Windows product ID")
-            print(f"    {C}System / BIOS info{RST}")
-            print(f"      • SystemManufacturer, SystemProductName")
-            print(f"      • BIOSVendor, BIOSVersion, BIOSReleaseDate")
-            print(f"      • SystemFamily, SystemVersion, SystemSKU")
-            print(f"    {C}Network{RST}")
-            print(f"      • MAC addresses   all NIC driver keys (NetworkAddress)")
-            print(f"    {C}Display{RST}")
-            print(f"      • GPU DriverDesc  display driver description strings")
-            print(f"    {C}Identifiers{RST}")
-            print(f"      • ComputerName    registry + active key")
-            print(f"      • DiagTrack device ID, provisioning client ID")
-            print(f"    {C}GTA:SA CD key{RST}")
-            print(f"      • GTA:SA Serial   Rockstar Games registry key")
-            print(f"    {C}MTA serial{RST}")
-            print(f"      • cachechecksum   MTA serial source")
-            print(f"      • Serial          MTA \\Common\\Serial all locations")
-            print(f"    {C}Cleanup{RST}")
-            print(f"      • MTA config + cache + logs, DNS flush, Winsock reset")
-            print()
-            print(f"  {Y}All originals backed up → mta_hwid_backup.json{RST}")
-            print(f"  {R}Requires admin. Reboot recommended after to apply all changes.{RST}")
-            sep()
-            if prompt(t("prompt.type_yes_confirm")).upper() not in ("YES", "ANO"):
-                continue
-            print()
-            info("Running — this may take a few seconds…")
-            result = hrajeme_skimo_rp(logger)
-            print()
-
-            # killed processes
-            if result.get("killed"):
-                for p in result["killed"]:
-                    ok(f"Killed    {p['name']}  PID {p['pid']}")
-            else:
-                print(f"  {DIM}No MTA/GTA processes were running{RST}")
-            print()
-
-            if result.get("os_ids"):
-                ok(f"OS IDs:     {', '.join(result['os_ids'].keys())}")
-                for k, v in result["os_ids"].items():
-                    print(f"    {k}: {C}{v}{RST}")
-
-            if result.get("bios_info"):
-                ok(f"BIOS/System: {', '.join(result['bios_info'].keys())}")
-                for k, v in result["bios_info"].items():
-                    print(f"    {k}: {C}{v}{RST}")
-
-            if result.get("computer"):
-                ok(f"ComputerName: {C}{result['computer']}{RST}")
-
-            if result.get("gpu"):
-                ok(f"GPU:        {len(result['gpu'])} driver key(s) changed")
-
-            if result.get("mac"):
-                ok(f"MAC addr:   {len(result['mac'])} adapter(s)")
-                for sub, mac in result["mac"].items():
-                    print(f"    NIC {sub}: {C}{mac}{RST}")
-
-            if result.get("install_ids"):
-                ok(f"Install IDs: {', '.join(result['install_ids'].keys())}")
-
-            gta = result.get("gta_sa", {})
-            if gta.get("changed"):
-                ok(f"GTA:SA key: {C}{gta['new']}{RST}")
-
-            if result.get("serial", {}).get("serial"):
-                ok(f"MTA serial: {C}{result['serial']['serial']}{RST}")
-
-            c = result.get("cache", {})
-            if c:
-                ok(f"Cache:      {c.get('cleaned',0)} cleaned, {c.get('skipped',0)} skipped")
-
-            for desc, success, _ in result.get("network", []):
-                ok(desc) if success else err(desc)
-
-            if result.get("errors"):
-                warn(f"{len(result['errors'])} error(s):")
-                for e_msg in result["errors"][:5]:
-                    err(e_msg)
-            print()
-            warn("Close MTA and reopen — serial takes effect on next launch.")
-            warn("Reboot recommended to apply MAC + computer name changes.")
-            pause()
-
-        elif cmd == "hrr":
-            if not hrajeme_backup_exists():
-                err("No HrajemeSkimoRP backup found — run [hrp] first."); pause(); continue
-            warn("Restores all original values: HWID, MAC addresses, MTA serial.")
-            if prompt(t("prompt.type_yes")).upper() not in ("YES", "ANO"):
-                continue
-            result = restore_hrajeme(logger)
-            if result["ok"]:
-                for line in result["restored"]:
-                    ok(line)
-                warn("Reboot recommended to apply MAC address changes.")
-            else:
-                err(f"Restore failed: {result.get('error','')} {'; '.join(result.get('errors',[]))}")
-            pause()
-
-        # ── diagnostics ──
-        elif cmd == "md":
-            info("Running MTA diagnostic scan (WMI + registry)…")
-            diag = mta_diagnostics()
-            sep()
-
-            # Hardware info via WMI
-            hw = diag.get("hardware", {})
-            if "error" in hw:
-                print(f"  {B}Hardware (WMI){RST}  {Y}{hw['error']}{RST}")
-            else:
-                print(f"  {B}Hardware (WMI){RST}")
-                if hw.get("bios"):
-                    b = hw["bios"]
-                    print(f"    BIOS   {b.get('manufacturer','')}  ver {b.get('version','')}  s/n {b.get('serial','')}")
-                if hw.get("motherboard"):
-                    m = hw["motherboard"]
-                    print(f"    Board  {m.get('manufacturer','')} {m.get('product','')}  s/n {m.get('serial','')}")
-                if hw.get("cpu"):
-                    c2 = hw["cpu"]
-                    print(f"    CPU    {c2.get('name','')}  ID {c2.get('processor_id','')}")
-                for disk in hw.get("disks", []):
-                    print(f"    Disk   {disk.get('model','')}  s/n {C}{disk.get('serial','')}{RST}  {disk.get('size_gb','')} GB")
-                for gpu in hw.get("gpus", []):
-                    print(f"    GPU    {gpu.get('name','')}  drv {gpu.get('driver_version','')}")
-                if hw.get("system_product"):
-                    sp = hw["system_product"]
-                    print(f"    UUID   {C}{sp.get('uuid','')}{RST}")
-                for nic in hw.get("network_adapters", []):
-                    print(f"    NIC    {nic.get('name','')}  {C}{nic.get('mac_address','')}{RST}")
-
-            print(f"\n  {B}MTA Serial{RST}")
-            for label, val in diag["serial_registry"].items():
-                print(f"    {label}: {C}{val}{RST}")
-
-            print(f"\n  {B}Cachechecksum{RST}")
-            if diag["cachechecksum"]:
-                for ver, val in diag["cachechecksum"].items():
-                    print(f"    {ver}: {val}")
-            else:
-                print(f"    {DIM}(not found){RST}")
-
-            print(f"\n  {B}Registry tree{RST}")
-            for path, data in diag["registry"].items():
-                if data == "(not found)":
-                    print(f"    {DIM}{path}: not found{RST}")
-                else:
-                    print(f"    {C}{path}{RST}")
-                    for vk, vv in data.get("_values", {}).items():
-                        print(f"      {vk} = {vv}")
-                    subs = list(data.get("_subkeys", {}).keys())
-                    if subs:
-                        print(f"      subkeys: {', '.join(subs)}")
-
-            print(f"\n  {B}Cache targets{RST}")
-            for desc, path in diag.get("cache_targets", []):
-                print(f"    {desc}  {DIM}{path}{RST}")
-            pause()
-
-        else:
-            err("Unknown option.")
-
-
-def menu_gaming(logger: CleanerLogger):
-    _menu_spoofer(logger)
-
-
-# ── 45. MTA LUA EXECUTOR ─────────────────────────────────────
-
-def _lua_editor(initial_code: str = "") -> str | None:
-    """
-    Interactive terminal Lua code editor.
-    Returns the final code string, or None if the user cancels.
-    Commands:
-      <any text>       — append line
-      .e <n> <text>    — replace line n
-      .d <n>           — delete line n
-      .ins <n>         — insert line before n (prompts for content)
-      .clear           — remove all lines
-      .done            — finish and return code
-      .cancel          — discard and return None
-    """
-    lines: list[str] = initial_code.splitlines() if initial_code.strip() else []
-
-    def _draw():
-        clr()
-        print(f"{G}{B}  ┌─ Lua Editor {'─' * 42}┐{RST}")
-        if lines:
-            for i, ln in enumerate(lines, 1):
-                num = f"{i:>3}"
-                print(f"{G}{B}  │{RST} {C}{num}{RST}  {ln}")
-        else:
-            print(f"{G}{B}  │{RST}  {DIM}(empty){RST}")
-        print(f"{G}{B}  └{'─' * 48}┘{RST}")
-        sep()
-        print(f"  {DIM}Type Lua code to append  │  .e <n> <text>  edit line"
-              f"  │  .d <n>  delete{RST}")
-        print(f"  {DIM}.ins <n>  insert before n  │  .clear  clear all"
-              f"  │  .done  finish  │  .cancel  quit{RST}")
-        sep()
-
-    while True:
-        _draw()
-        try:
-            raw = input(f"  {Y}lua>{RST} ").rstrip("\n")
-        except (KeyboardInterrupt, EOFError):
-            return None
-
-        stripped = raw.strip()
-
-        if stripped == ".done":
-            return "\n".join(lines)
-
-        if stripped == ".cancel":
-            return None
-
-        if stripped == ".clear":
-            lines.clear()
-            continue
-
-        if stripped.startswith(".e "):
-            rest = stripped[3:].strip()
-            parts = rest.split(" ", 1)
-            try:
-                n = int(parts[0]) - 1
-                if not (0 <= n < len(lines)):
-                    raise ValueError
-                lines[n] = parts[1] if len(parts) > 1 else ""
-            except (ValueError, IndexError):
-                pass
-            continue
-
-        if stripped.startswith(".d "):
-            try:
-                n = int(stripped[3:].strip()) - 1
-                if 0 <= n < len(lines):
-                    lines.pop(n)
-            except ValueError:
-                pass
-            continue
-
-        if stripped.startswith(".ins "):
-            try:
-                n = int(stripped[5:].strip()) - 1
-                if not (0 <= n <= len(lines)):
-                    raise ValueError
-                _draw()
-                try:
-                    new_line = input(f"  {Y}insert>{RST} ").rstrip("\n")
-                except (KeyboardInterrupt, EOFError):
-                    new_line = ""
-                lines.insert(n, new_line)
-            except ValueError:
-                pass
-            continue
-
-        # Default: append line (preserve original indentation)
-        lines.append(raw)
-
-
-def menu_executor(logger: CleanerLogger):
-    from core import executor as _exc
-
-    _custom_res_dir: str = ""  # user-overridden path
-
-    while True:
-        header("MTA Lua Executor")
-
-        # Detect local MTA resources dir
-        res_dir = _custom_res_dir or _exc.find_resources_dir(logger)
-        if res_dir:
-            print(f"  {G}Local MTA resources:{RST} {res_dir}")
-        else:
-            print(f"  {Y}Local MTA install not found — set path manually with [5]{RST}")
-
-        saved = _exc.list_saved_scripts()
-        if saved:
-            print(f"  {DIM}Saved scripts: {', '.join(s['name'] for s in saved)}{RST}")
-
-        sep()
-        print(f"  {C}[1]{RST} Write / paste Lua code & deploy  {DIM}(client-side, no server access needed){RST}")
-        print(f"  {C}[2]{RST} Load saved script & deploy")
-        print(f"  {C}[3]{RST} Save current code to file")
-        print(f"  {C}[4]{RST} List / delete saved scripts")
-        print(f"  {C}[5]{RST} Set local MTA resources directory")
-        print(f"  {C}[6]{RST} Find triggers  {DIM}(scan Lua files for events / trigger calls){RST}")
-        print(f"  {C}[0]{RST} Back")
-        sep()
-        print(f"  {DIM}Scripts run client-side — no server access needed.{RST}")
-        print(f"  {DIM}Connect to any server and type  {RST}{B}start sc_executor{RST}{DIM}  in the F8 console.{RST}")
-        sep()
-
-        c = prompt()
-        if c == "0":
-            break
-
-        elif c == "1":
-            code = _lua_editor()
-            if code is None or not code.strip():
-                err("No code entered.")
-                pause()
-                continue
-
-            # Client by default; advanced users can pick server/both
-            print(f"\n  Script type — {C}[1]{RST} Client (default)  {C}[2]{RST} Server  {C}[3]{RST} Both")
-            st_choice = prompt("Type [1]: ").strip() or "1"
-            script_type = {"1": "client", "2": "server", "3": "both"}.get(st_choice, "client")
-
-            if not res_dir:
-                res_dir = prompt("Local MTA resources path: ")
-
-            if not res_dir:
-                err("No resources directory.")
-                pause()
-                continue
-
-            result = _exc.deploy_script(code, script_type, res_dir, logger)
-            ok(f"Deployed to: {result['path']}")
-            if result["client_written"]:
-                print(f"  {G}client.lua{RST} written")
-            if result["server_written"]:
-                print(f"  {G}server.lua{RST} written")
-            print(f"\n  {Y}In MTA F8 console type:{RST}  {B}start sc_executor{RST}")
-            pause()
-
-        elif c == "2":
-            saved = _exc.list_saved_scripts()
-            if not saved:
-                err("No saved scripts.")
-                pause()
-                continue
-
-            header("Load Saved Script")
-            for i, s in enumerate(saved, 1):
-                print(f"  {C}[{i}]{RST} {s['name']}  {DIM}({s['size']} B) — {s['preview']}{RST}")
-            sep()
-            choice2 = prompt("Script number: ")
-            try:
-                idx = int(choice2) - 1
-                script = saved[idx]
-            except (ValueError, IndexError):
-                err("Invalid selection.")
-                pause()
-                continue
-
-            # Open editor pre-filled with saved code so user can edit before deploy
-            code = _lua_editor(script["code"])
-            if code is None or not code.strip():
-                err("Cancelled.")
-                pause()
-                continue
-
-            print(f"\n  Script type — {C}[1]{RST} Client (default)  {C}[2]{RST} Server  {C}[3]{RST} Both")
-            st_choice = prompt("Type [1]: ").strip() or "1"
-            script_type = {"1": "client", "2": "server", "3": "both"}.get(st_choice, "client")
-
-            if not res_dir:
-                res_dir = prompt("Local MTA resources path: ")
-
-            if not res_dir:
-                err("No resources directory.")
-                pause()
-                continue
-
-            result = _exc.deploy_script(code, script_type, res_dir, logger)
-            ok(f"Deployed '{script['name']}' to: {result['path']}")
-            print(f"\n  {Y}In MTA F8 console type:{RST}  {B}start sc_executor{RST}")
-            pause()
-
-        elif c == "3":
-            code = _lua_editor()
-            if code is None or not code.strip():
-                err("Cancelled.")
-                pause()
-                continue
-
-            name = prompt("Script name (letters/numbers/- only): ")
-            if _exc.save_script(name, code):
-                ok(f"Saved as '{name}.lua'")
-            else:
-                err("Failed to save. Check the name.")
-            pause()
-
-        elif c == "4":
-            saved = _exc.list_saved_scripts()
-            if not saved:
-                err("No saved scripts.")
-                pause()
-                continue
-
-            header("Saved Scripts")
-            for i, s in enumerate(saved, 1):
-                print(f"  {C}[{i}]{RST} {s['name']}  {DIM}{s['size']} B — {s['preview']}{RST}")
-            sep()
-            print(f"  {DIM}Enter number to delete, or 0 to go back{RST}")
-            choice2 = prompt()
-            if choice2 == "0":
-                continue
-            try:
-                idx = int(choice2) - 1
-                script = saved[idx]
-            except (ValueError, IndexError):
-                err("Invalid selection.")
-                pause()
-                continue
-
-            if _exc.delete_script(script["name"]):
-                ok(f"Deleted '{script['name']}'")
-            else:
-                err("Failed.")
-            pause()
-
-        elif c == "5":
-            print(f"  {DIM}Enter the path to your local MTA resources folder.{RST}")
-            print(f"  {DIM}Example: C:\\Program Files (x86)\\MTA San Andreas 1.6\\mods\\deathmatch\\resources{RST}")
-            new_dir = prompt("Path: ")
-            if new_dir and Path(new_dir).exists():
-                _custom_res_dir = new_dir
-                res_dir = new_dir
-                ok(f"Set to: {res_dir}")
-            else:
-                err("Path does not exist.")
-            pause()
-
-        elif c == "6":
-            _menu_find_triggers(_exc)
-
-
-def _menu_find_triggers(_exc):
-    """Trigger finder sub-menu — scan a directory of Lua files for MTA events."""
-    header("Find Triggers")
-    print(f"  {DIM}Scan a folder of Lua scripts for MTA event/trigger calls.{RST}")
-    print(f"  {DIM}Useful for exploring a resource pack you downloaded or own.{RST}")
-    sep()
-    scan_path = prompt("Path to scan (folder with .lua files): ").strip()
-    if not scan_path or not Path(scan_path).exists():
-        err("Path does not exist.")
-        pause()
-        return
-
-    info("Scanning…")
-    result = _exc.find_triggers(scan_path)
-
-    if result["total"] == 0:
-        warn(f"No triggers found in {result['files_scanned']} file(s).")
-        pause()
-        return
-
-    # ── display by category ──────────────────────────────────────────────────
-    _CAT_COLOR = {
-        "addEvent":                 G,
-        "addEventHandler":          G,
-        "triggerServerEvent":       Y,
-        "triggerClientEvent":       C,
-        "triggerLatentServerEvent": Y,
-        "triggerLatentClientEvent": C,
-        "removeEventHandler":       R,
-    }
-
-    while True:
-        header("Trigger Finder Results")
-        print(f"  Scanned {result['files_scanned']} file(s)  │  "
-              f"{result['total']} hits  │  "
-              f"{len(result['by_event'])} unique event names")
-        sep()
-
-        # Summary per category
-        for cat in _exc._CATEGORY_ORDER:
-            hits = result["by_category"].get(cat, [])
-            if hits:
-                col = _CAT_COLOR.get(cat, W)
-                print(f"  {col}{cat:<28}{RST}  {len(hits):>4} hit(s)")
-        sep()
-
-        # Unique event names list
-        events = sorted(result["by_event"].keys())
-        for i, ev in enumerate(events, 1):
-            cats_found = {e["category"] for e in result["by_event"][ev]}
-            col = Y if "triggerServerEvent" in cats_found else (
-                  C if "triggerClientEvent" in cats_found else G)
-            print(f"  {DIM}{i:>3}{RST}  {col}{ev}{RST}  "
-                  f"{DIM}{', '.join(sorted(cats_found))}{RST}")
-
-        sep()
-        print(f"  {C}[<n>]{RST}  Inspect event & generate snippet")
-        print(f"  {C}[d]  {RST}  Deploy all triggerServerEvent calls as one script")
-        print(f"  {C}[0]  {RST}  Back")
-        sep()
-
-        cmd = prompt().strip().lower()
-        if cmd == "0":
-            break
-
-        elif cmd == "d":
-            # Build a combined client script that calls all triggerServerEvent events
-            sv_events = sorted({
-                e["name"]
-                for e in result["by_category"].get("triggerServerEvent", [])
-            })
-            if not sv_events:
-                err("No triggerServerEvent calls found.")
-                pause()
-                continue
-            lines = ["-- Auto-generated: all triggerServerEvent calls found\n"]
-            for ev in sv_events:
-                safe = _exc._safe_cmd(ev)
-                lines.append(
-                    f'addCommandHandler("t_{safe}", function()\n'
-                    f'    triggerServerEvent("{ev}", localPlayer)\n'
-                    f'end)\n'
-                )
-            code = "\n".join(lines)
-            ok(f"Generated snippet for {len(sv_events)} event(s).")
-            print(f"\n{DIM}{code[:800]}{'...' if len(code) > 800 else ''}{RST}")
-            sep()
-            print(f"  {C}[s]{RST} Save to scripts  {C}[enter]{RST} Skip")
-            if prompt().strip().lower() == "s":
-                name = prompt("Script name: ").strip() or "triggers_all"
-                if _exc.save_script(name, code):
-                    ok(f"Saved as '{name}.lua'")
-                else:
-                    err("Save failed.")
-            pause()
-
-        else:
-            try:
-                idx = int(cmd) - 1
-                ev = events[idx]
-            except (ValueError, IndexError):
-                continue
-
-            entries = result["by_event"][ev]
-            header(f"Event: {ev}")
-            for e in entries:
-                col = _CAT_COLOR.get(e["category"], W)
-                print(f"  {col}{e['category']}{RST}  "
-                      f"{DIM}{e['file']}:{e['line']}{RST}")
-                print(f"    {DIM}{e['context']}{RST}")
-            sep()
-
-            snippet = _exc.build_trigger_snippet(ev, entries)
-            print(f"  {Y}Generated snippet:{RST}")
-            print(f"{DIM}{snippet}{RST}")
-            sep()
-            print(f"  {C}[s]{RST} Save snippet  {C}[enter]{RST} Back")
-            if prompt().strip().lower() == "s":
-                name = prompt("Script name: ").strip() or f"trig_{_exc._safe_cmd(ev)}"
-                if _exc.save_script(name, snippet):
-                    ok(f"Saved as '{name}.lua'")
-                else:
-                    err("Save failed.")
-            pause()
-
-
 # ── 49. APP MANAGER ─────────────────────────────────────────
 
 def menu_appmgr(logger: CleanerLogger):
@@ -5069,6 +4476,847 @@ def menu_appmgr(logger: CleanerLogger):
             err(t("app.unknown_option"))
 
 
+# ── 45. TWEAKS CENTER ───────────────────────────────────────
+
+def _fmt_tweak_state(state):
+    if state is True:
+        return f"{G}ON{RST}"
+    if state is False:
+        return f"{DIM}OFF{RST}"
+    return f"{Y}?{RST}"
+
+
+def _show_dry_run(summary: dict):
+    conflicts = summary.get("conflicts", [])
+    if conflicts:
+        warn(t("twk.conflicts_detected"))
+        for c in conflicts:
+            print(f"  {Y}•{RST} {c}")
+        sep()
+
+    print(f"  {B}{t('twk.dryrun_preview')}{RST}")
+    req_admin = 0
+    req_restart = 0
+    for res in summary.get("results", []):
+        mark = f"{G}OK{RST}" if res.get("ok") else f"{R}SKIP{RST}"
+        mode = ""
+        if res.get("kind") == "toggle":
+            mode = f" -> {G}ON{RST}" if res.get("enabled") else f" -> {DIM}OFF{RST}"
+        print(f"  [{mark}] {res.get('label', res.get('key', '?'))}{mode}")
+        if not res.get("ok"):
+            print(f"      {DIM}{res.get('message', '')}{RST}")
+            continue
+
+        if res.get("requires_admin"):
+            req_admin += 1
+        if res.get("restart_required"):
+            req_restart += 1
+
+        comp = res.get("compatibility", {})
+        if not comp.get("compatible", True):
+            print(
+                f"      {Y}{t('twk.compatibility_label')}{RST} "
+                f"{comp.get('reason', t('twk.not_compatible'))}"
+            )
+
+        plan = res.get("plan", [])
+        for step in plan[:2]:
+            kind = step.get("kind", "step")
+            if kind == "registry_set":
+                print(f"      {DIM}reg set {step.get('hive')}\\{step.get('key_path')}::{step.get('value_name')}{RST}")
+            elif kind == "registry_delete":
+                print(f"      {DIM}reg del {step.get('hive')}\\{step.get('key_path')}::{step.get('value_name')}{RST}")
+            elif kind == "service_start":
+                print(f"      {DIM}service {step.get('service_name')} -> {step.get('new_mode')}{RST}")
+            elif kind == "power_scheme":
+                print(f"      {DIM}power profile -> {step.get('new_guid')}{RST}")
+            elif kind == "command":
+                print(f"      {DIM}cmd: {str(step.get('command', ''))[:72]}{RST}")
+            else:
+                print(f"      {DIM}{kind}: {str(step.get('description', ''))[:72]}{RST}")
+
+    sep()
+    print(f"  {t('twk.requires_admin', count=req_admin)}")
+    print(f"  {t('twk.requires_restart', count=req_restart)}")
+
+
+def _run_tweak_batch(
+    logger: CleanerLogger,
+    tweak_keys: list[str],
+    enable: bool | None = None,
+    preview_only: bool = False,
+):
+    from core import tweaks as _tw
+
+    if not tweak_keys:
+        err(t("twk.no_selection"))
+        return {}
+
+    dry = _tw.dry_run_many(tweak_keys, logger=logger, enable=enable)
+    sep()
+    _show_dry_run(dry)
+    if preview_only:
+        return dry
+
+    warn(t("twk.apply_now"))
+    if prompt(t("prompt.type_yes")).upper() not in ("YES", "ANO"):
+        info(t("twk.cancelled_after_dryrun"))
+        return dry
+
+    summary = _tw.apply_many(tweak_keys, logger=logger, enable=enable)
+    sep()
+    print(f"  {B}{t('twk.apply_result')}{RST}")
+    for res in summary.get("results", []):
+        s = f"{G}OK{RST}" if res.get("ok") else f"{R}FAIL{RST}"
+        mode = ""
+        if res.get("kind") == "toggle":
+            if res.get("enabled") is True:
+                mode = f" [{G}ON{RST}]"
+            elif res.get("enabled") is False:
+                mode = f" [{DIM}OFF{RST}]"
+        print(f"  [{s}] {res.get('label', res.get('key', '?'))}{mode}")
+        if res.get("message"):
+            print(f"      {DIM}{res['message']}{RST}")
+
+    sep()
+    bench = summary.get("benchmark", {})
+    delta = bench.get("delta", {}) if isinstance(bench, dict) else {}
+    if delta:
+        print(f"  {B}{t('twk.measured_delta')}{RST}")
+        for k in ("cpu_percent", "ram_percent", "startup_enabled", "optional_services_running", "disk_free"):
+            if k in delta:
+                print(f"    {k:<24} {delta[k]:+}")
+        rp = bench.get("report_path", "")
+        if rp:
+            print(f"    {t('twk.report_path', path=rp)}")
+        sep()
+
+    pending = summary.get("pending_restart", {})
+    if pending and pending.get("count", 0):
+        warn(t("twk.pending_restart", count=pending.get("count", 0)))
+
+    if summary.get("failed", 0):
+        warn(t("twk.applied_partial", ok=summary.get("ok", 0), total=summary.get("total", 0)))
+    else:
+        ok(t("twk.applied_success", ok=summary.get("ok", 0)))
+    return summary
+
+
+def _menu_tweaks_group(logger: CleanerLogger, group_key: str, title: str):
+    from core import tweaks as _tw
+
+    while True:
+        items = _tw.list_tweaks(group_key)
+        header(f"{t('menu.tweaks')} — {title}")
+        sep()
+
+        if not items:
+            warn(t("twk.group_empty"))
+            pause()
+            return
+
+        for i, item in enumerate(items, 1):
+            caution = f" {Y}[!]{RST}" if item.get("caution") else ""
+            fav = "★" if item.get("favorite") else " "
+            comp = item.get("compatibility", {})
+            bad = f" {R}[X]{RST}" if not comp.get("compatible", True) else ""
+            if item.get("kind") == "toggle":
+                state = _fmt_tweak_state(item.get("state"))
+                print(f"  {C}[{i:>2}]{RST} {fav} {item['label']:<50} {state}{caution}{bad}")
+            else:
+                print(f"  {C}[{i:>2}]{RST} {fav} {item['label']}{caution}{bad}")
+
+        sep()
+        if group_key == "preferences":
+            print(
+                f"  {C}[n]{RST} {t('twk.cmd_toggle_number')}   "
+                f"{C}[on 1,3]{RST} {t('twk.cmd_force_on')}   "
+                f"{C}[off 1,3]{RST} {t('twk.cmd_force_off')}"
+            )
+            print(
+                f"  {C}[all on]{RST} {t('twk.cmd_enable_all')}      "
+                f"{C}[all off]{RST} {t('twk.cmd_disable_all')}"
+            )
+        else:
+            print(
+                f"  {C}[n]{RST} {t('twk.cmd_apply_single')}   "
+                f"{C}[a 1,3]{RST} {t('twk.cmd_apply_selected')}   "
+                f"{C}[all]{RST} {t('twk.cmd_apply_all')}"
+            )
+        print(
+            f"  {C}[p 1,3]{RST} {t('twk.cmd_preview_only')}     "
+            f"{C}[f 1,3]{RST} {t('twk.cmd_toggle_favorite')}"
+        )
+        print(f"  {C}[0]{RST} {t('menu.back')}")
+        sep()
+
+        cmd = prompt().strip().lower()
+        if cmd == "0":
+            return
+
+        if cmd.startswith("f "):
+            idxs = _parse_nums(cmd[2:], len(items))
+            if not idxs:
+                err(t("twk.invalid_selection"))
+                pause()
+                continue
+            for i in idxs:
+                _tw.toggle_favorite(items[i]["key"])
+            ok(t("twk.favorites_updated_count", count=len(idxs)))
+            pause()
+            continue
+
+        if cmd.startswith("p "):
+            idxs = _parse_nums(cmd[2:], len(items))
+            if not idxs:
+                err(t("twk.invalid_selection"))
+                pause()
+                continue
+            keys = [items[i]["key"] for i in idxs]
+            _run_tweak_batch(logger, keys, enable=None, preview_only=True)
+            pause()
+            continue
+
+        if group_key == "preferences":
+            if cmd == "all on":
+                keys = [it["key"] for it in items]
+                _run_tweak_batch(logger, keys, enable=True)
+                pause()
+                continue
+            if cmd == "all off":
+                keys = [it["key"] for it in items]
+                _run_tweak_batch(logger, keys, enable=False)
+                pause()
+                continue
+            if cmd.startswith("on "):
+                idxs = _parse_nums(cmd[3:], len(items))
+                if not idxs:
+                    err(t("twk.invalid_selection"))
+                    pause()
+                    continue
+                keys = [items[i]["key"] for i in idxs]
+                _run_tweak_batch(logger, keys, enable=True)
+                pause()
+                continue
+            if cmd.startswith("off "):
+                idxs = _parse_nums(cmd[4:], len(items))
+                if not idxs:
+                    err(t("twk.invalid_selection"))
+                    pause()
+                    continue
+                keys = [items[i]["key"] for i in idxs]
+                _run_tweak_batch(logger, keys, enable=False)
+                pause()
+                continue
+            if cmd.isdigit():
+                idx = int(cmd) - 1
+                if 0 <= idx < len(items):
+                    _run_tweak_batch(logger, [items[idx]["key"]], enable=None)
+                else:
+                    err(t("twk.invalid_number"))
+                pause()
+                continue
+
+            err(t("app.unknown_option"))
+            pause()
+            continue
+
+        # Action categories
+        if cmd == "all":
+            caut = [it["label"] for it in items if it.get("caution")]
+            if caut:
+                warn(t("twk.caution_set"))
+                for lbl in caut[:8]:
+                    print(f"  {Y}•{RST} {lbl}")
+                if len(caut) > 8:
+                    print(f"  {DIM}{t('twk.more_count', count=len(caut)-8)}{RST}")
+            _run_tweak_batch(logger, [it["key"] for it in items], enable=None)
+            pause()
+            continue
+
+        if cmd.startswith("a "):
+            idxs = _parse_nums(cmd[2:], len(items))
+            if not idxs:
+                err(t("twk.invalid_selection"))
+                pause()
+                continue
+            selected = [items[i] for i in idxs]
+            caut = [it["label"] for it in selected if it.get("caution")]
+            if caut:
+                warn(t("twk.caution_selected"))
+                for lbl in caut:
+                    print(f"  {Y}•{RST} {lbl}")
+            _run_tweak_batch(logger, [it["key"] for it in selected], enable=None)
+            pause()
+            continue
+
+        if cmd.isdigit():
+            idx = int(cmd) - 1
+            if not (0 <= idx < len(items)):
+                err(t("twk.invalid_number"))
+                pause()
+                continue
+            sel = items[idx]
+            if sel.get("caution"):
+                warn(t("twk.caution_single"))
+                if prompt(t("prompt.type_yes")).upper() not in ("YES", "ANO"):
+                    continue
+            _run_tweak_batch(logger, [sel["key"]], enable=None)
+            pause()
+            continue
+
+        err(t("app.unknown_option"))
+        pause()
+
+
+def _menu_tweaks_search(logger: CleanerLogger):
+    from core import tweaks as _tw
+
+    while True:
+        header(f"{t('menu.tweaks')} — {t('twk.search_title')}")
+        q = prompt(t("twk.search_prompt")).strip()
+        if q == "0":
+            return
+
+        rows = _tw.search_tweaks(q, limit=80)
+        sep()
+        if not rows:
+            warn(t("twk.search_none"))
+            pause()
+            continue
+
+        for i, r in enumerate(rows, 1):
+            fav = "★" if r.get("favorite") else " "
+            comp = r.get("compatibility", {})
+            bad = f" {R}[X]{RST}" if not comp.get("compatible", True) else ""
+            if r.get("kind") == "toggle":
+                st = _fmt_tweak_state(r.get("state"))
+                print(f"  {C}[{i:>2}]{RST} {fav} {r.get('label',''):<50} {st}{bad}  {DIM}{r.get('group','')}{RST}")
+            else:
+                print(f"  {C}[{i:>2}]{RST} {fav} {r.get('label','')}{bad}  {DIM}{r.get('group','')}{RST}")
+
+        sep()
+        print(
+            f"  {C}[n]{RST} {t('twk.cmd_apply_single')}   "
+            f"{C}[a 1,3]{RST} {t('twk.cmd_apply_selected')}   "
+            f"{C}[p 1,3]{RST} {t('twk.cmd_preview_only')}"
+        )
+        print(f"  {C}[f 1,3]{RST} {t('twk.cmd_toggle_favorite')}   {C}[0]{RST} {t('menu.back')}")
+        sep()
+        cmd = prompt().strip().lower()
+        if cmd == "0":
+            return
+        if cmd.startswith("f "):
+            idxs = _parse_nums(cmd[2:], len(rows))
+            for i in idxs:
+                _tw.toggle_favorite(rows[i]["key"])
+            ok(t("twk.favorites_updated_count", count=len(idxs)))
+            pause()
+            continue
+        if cmd.startswith("p "):
+            idxs = _parse_nums(cmd[2:], len(rows))
+            keys = [rows[i]["key"] for i in idxs]
+            _run_tweak_batch(logger, keys, preview_only=True)
+            pause()
+            continue
+        if cmd.startswith("a "):
+            idxs = _parse_nums(cmd[2:], len(rows))
+            keys = [rows[i]["key"] for i in idxs]
+            _run_tweak_batch(logger, keys)
+            pause()
+            continue
+        if cmd.isdigit():
+            idx = int(cmd) - 1
+            if 0 <= idx < len(rows):
+                _run_tweak_batch(logger, [rows[idx]["key"]])
+            else:
+                err(t("twk.invalid_number"))
+            pause()
+            continue
+
+        err(t("app.unknown_option"))
+        pause()
+
+
+def _menu_tweaks_favorites(logger: CleanerLogger):
+    from core import tweaks as _tw
+
+    while True:
+        header(f"{t('menu.tweaks')} — {t('twk.favorites_title')}")
+        rows = _tw.list_favorites()
+        sep()
+        if not rows:
+            warn(t("twk.favorites_none"))
+            pause()
+            return
+
+        for i, r in enumerate(rows, 1):
+            if r.get("kind") == "toggle":
+                st = _fmt_tweak_state(r.get("state"))
+                print(f"  {C}[{i:>2}]{RST} ★ {r.get('label',''):<50} {st}")
+            else:
+                print(f"  {C}[{i:>2}]{RST} ★ {r.get('label','')}")
+
+        sep()
+        print(f"  {C}[n]{RST} {t('twk.cmd_apply_tweak')}   {C}[a 1,3]{RST} {t('twk.cmd_apply_selected')}")
+        print(f"  {C}[u 1,3]{RST} {t('twk.cmd_unfavorite')}   {C}[0]{RST} {t('menu.back')}")
+        sep()
+        cmd = prompt().strip().lower()
+        if cmd == "0":
+            return
+        if cmd.startswith("u "):
+            idxs = _parse_nums(cmd[2:], len(rows))
+            for i in idxs:
+                _tw.set_favorite(rows[i]["key"], is_favorite=False)
+            ok(t("twk.favorites_updated"))
+            pause()
+            continue
+        if cmd.startswith("a "):
+            idxs = _parse_nums(cmd[2:], len(rows))
+            keys = [rows[i]["key"] for i in idxs]
+            _run_tweak_batch(logger, keys)
+            pause()
+            continue
+        if cmd.isdigit():
+            idx = int(cmd) - 1
+            if 0 <= idx < len(rows):
+                _run_tweak_batch(logger, [rows[idx]["key"]])
+            else:
+                err(t("twk.invalid_number"))
+            pause()
+            continue
+        err(t("app.unknown_option"))
+        pause()
+
+
+def _menu_tweaks_profiles(logger: CleanerLogger):
+    from core import tweaks as _tw
+
+    while True:
+        header(f"{t('menu.tweaks')} — {t('twk.profiles_title')}")
+        print(f"  {C}[1]{RST} {t('twk.profiles_list')}")
+        print(f"  {C}[2]{RST} {t('twk.profiles_save')}")
+        print(f"  {C}[3]{RST} {t('twk.profiles_apply')}")
+        print(f"  {C}[4]{RST} {t('twk.profiles_export')}")
+        print(f"  {C}[5]{RST} {t('twk.profiles_import')}")
+        print(f"  {C}[6]{RST} {t('twk.profiles_delete')}")
+        print(f"  {C}[0]{RST} {t('menu.back')}")
+        sep()
+        c = prompt().strip()
+        if c == "0":
+            return
+
+        if c == "1":
+            rows = _tw.list_profiles()
+            sep()
+            if not rows:
+                warn(t("twk.profiles_none"))
+            else:
+                for r in rows:
+                    print(f"  {B}{r.get('name','')}{RST}  ({len(r.get('keys', []))} tweaks)")
+                    if r.get("description"):
+                        print(f"      {DIM}{r.get('description')}{RST}")
+            pause()
+
+        elif c == "2":
+            name = prompt(t("twk.profiles_prompt_name")).strip()
+            if not name:
+                continue
+            desc = prompt(t("twk.profiles_prompt_desc")).strip()
+            keys_raw = prompt(t("twk.profiles_prompt_keys")).strip()
+            if keys_raw.lower() == "favorites":
+                keys = [r["key"] for r in _tw.list_favorites()]
+            else:
+                keys = [k.strip() for k in keys_raw.replace(";", ",").split(",") if k.strip()]
+            res = _tw.save_profile(name, keys, description=desc)
+            ok(t("twk.profiles_saved", name=res.get("name", ""))) if res.get("ok") else err(res.get("message", t("twk.failed")))
+            pause()
+
+        elif c == "3":
+            name = prompt(t("twk.profiles_prompt_apply")).strip()
+            loaded = _tw.load_profile(name)
+            if not loaded.get("ok"):
+                err(loaded.get("message", t("twk.profiles_not_found")))
+                pause()
+                continue
+            keys = loaded.get("keys", [])
+            if not keys:
+                err(t("twk.profiles_no_valid_keys"))
+                pause()
+                continue
+            _run_tweak_batch(logger, keys)
+            pause()
+
+        elif c == "4":
+            name = prompt(t("twk.profiles_prompt_export")).strip()
+            default = str(Path("profiles") / f"{name}.json") if name else ""
+            path = prompt(t("twk.profiles_prompt_export_path", default=default)).strip().strip('"') or default
+            res = _tw.export_profile(name, path)
+            ok(t("twk.profiles_exported", path=res.get("path", ""))) if res.get("ok") else err(res.get("message", t("twk.profiles_export_failed")))
+            pause()
+
+        elif c == "5":
+            path = prompt(t("twk.profiles_prompt_import_path")).strip().strip('"')
+            if not path:
+                continue
+            name_override = prompt(t("twk.profiles_prompt_name_override")).strip()
+            res = _tw.import_profile(path, name_override=name_override)
+            ok(t("twk.profiles_imported", name=res.get("name", ""))) if res.get("ok") else err(res.get("message", t("twk.profiles_import_failed")))
+            pause()
+
+        elif c == "6":
+            name = prompt(t("twk.profiles_prompt_delete")).strip()
+            if not name:
+                continue
+            warn(t("twk.profiles_delete_confirm", name=name))
+            if prompt(t("prompt.type_yes")).upper() not in ("YES", "ANO"):
+                continue
+            res = _tw.delete_profile(name)
+            ok(t("twk.profiles_deleted")) if res.get("ok") else err(res.get("message", t("twk.profiles_delete_failed")))
+            pause()
+
+        else:
+            err(t("app.unknown_option"))
+            pause()
+
+
+def _menu_tweaks_ops(logger: CleanerLogger):
+    from core import tweaks as _tw
+
+    while True:
+        header(f"{t('menu.tweaks')} — {t('twk.ops_title')}")
+        pend = _tw.get_pending_restart()
+        hist = _tw.get_undo_overview(limit=8)
+        print(f"  {t('twk.ops_pending_count', count=pend.get('count', 0))}")
+        print(f"  {t('twk.ops_batches_count', count=len(hist.get('batches', [])))}")
+        print(f"  {t('twk.ops_changes_count', count=len(hist.get('changes', [])))}")
+        sep()
+        print(f"  {C}[1]{RST} {t('twk.ops_undo_change')}")
+        print(f"  {C}[2]{RST} {t('twk.ops_undo_batch')}")
+        print(f"  {C}[3]{RST} {t('twk.ops_show_pending')}")
+        print(f"  {C}[4]{RST} {t('twk.ops_clear_pending')}")
+        print(f"  {C}[5]{RST} {t('twk.ops_show_history')}")
+        print(f"  {C}[0]{RST} {t('menu.back')}")
+        sep()
+        c = prompt().strip()
+        if c == "0":
+            return
+
+        if c == "1":
+            res = _tw.undo_last_change(logger)
+            ok(res.get("message", t("twk.ops_undo_done"))) if res.get("ok") else err(res.get("message", t("twk.ops_undo_failed")))
+            pause()
+
+        elif c == "2":
+            res = _tw.undo_last_batch(logger)
+            ok(res.get("message", t("twk.ops_batch_undo_done"))) if res.get("ok") else err(res.get("message", t("twk.ops_batch_undo_failed")))
+            pause()
+
+        elif c == "3":
+            sep()
+            rows = pend.get("items", [])
+            if not rows:
+                info(t("twk.ops_no_pending"))
+            else:
+                for r in rows:
+                    print(f"  {r.get('timestamp','')[:19]}  {r.get('label','')}  {DIM}({r.get('key','')}){RST}")
+            pause()
+
+        elif c == "4":
+            res = _tw.clear_pending_restart()
+            ok(t("twk.ops_cleared_pending", count=res.get("cleared", 0)))
+            pause()
+
+        elif c == "5":
+            sep()
+            print(f"  {B}{t('twk.ops_recent_batches')}{RST}")
+            for b in hist.get("batches", [])[:8]:
+                st = f"{DIM}{t('twk.state_undone')}{RST}" if b.get("undone") else f"{G}{t('twk.state_active')}{RST}"
+                print(f"    #{b.get('id')}  {b.get('timestamp','')[:19]}  {st}  keys={len(b.get('keys', []))}")
+            print(f"\n  {B}{t('twk.ops_recent_changes')}{RST}")
+            for ch in hist.get("changes", [])[:8]:
+                st = f"{DIM}{t('twk.state_undone')}{RST}" if ch.get("undone") else f"{G}{t('twk.state_active')}{RST}"
+                rv = t("twk.reversible") if ch.get("reversible") else t("twk.non_reversible")
+                print(f"    #{ch.get('id')}  {ch.get('label','')}  {st}  {rv}")
+            pause()
+
+        else:
+            err(t("app.unknown_option"))
+            pause()
+
+
+def menu_tweaks(logger: CleanerLogger):
+    while True:
+        header(t("menu.tweaks"))
+        print(f"  {DIM}{t('twk.menu_desc')}{RST}")
+        sep()
+        print(f"  {C}[1]{RST} {t('twk.menu_essential')}")
+        print(f"  {C}[2]{RST} {t('twk.menu_advanced')}")
+        print(f"  {C}[3]{RST} {t('twk.menu_preferences')}")
+        print(f"  {C}[4]{RST} {t('twk.menu_performance')}")
+        print(f"  {C}[5]{RST} {t('twk.menu_search')}")
+        print(f"  {C}[6]{RST} {t('twk.menu_favorites')}")
+        print(f"  {C}[7]{RST} {t('twk.menu_profiles')}")
+        print(f"  {C}[8]{RST} {t('twk.menu_ops')}")
+        print(f"  {C}[0]{RST} {t('menu.back')}")
+        sep()
+
+        c = prompt().strip()
+        if c == "0":
+            break
+        if c == "1":
+            _menu_tweaks_group(logger, "essential", t("twk.menu_essential"))
+        elif c == "2":
+            _menu_tweaks_group(logger, "advanced", t("twk.menu_advanced"))
+        elif c == "3":
+            _menu_tweaks_group(logger, "preferences", t("twk.menu_preferences"))
+        elif c == "4":
+            _menu_tweaks_group(logger, "performance", t("twk.menu_performance"))
+        elif c == "5":
+            _menu_tweaks_search(logger)
+        elif c == "6":
+            _menu_tweaks_favorites(logger)
+        elif c == "7":
+            _menu_tweaks_profiles(logger)
+        elif c == "8":
+            _menu_tweaks_ops(logger)
+        else:
+            err(t("app.unknown_option"))
+            pause()
+
+
+# ── 44. FACTORY WIZARD ──────────────────────────────────────
+
+def menu_factory_wizard(logger: CleanerLogger):
+    from core import factory as _fw
+    from core import pkgmgr as _pkg
+
+    while True:
+        profiles = _fw.get_factory_profiles()
+
+        header(t("menu.factory_wizard"))
+        print(f"  {DIM}Factory setup for a fresh PC: apps + startup/services tuning + audit trail.{RST}")
+        sep()
+        for i, p in enumerate(profiles, 1):
+            print(f"  {C}[{i}]{RST} {p['label']}")
+            print(f"      {DIM}{p['description']}{RST}")
+        print(f"  {C}[0]{RST} {t('menu.back')}")
+        sep()
+
+        raw = prompt("Select profile: ").strip()
+        if raw == "0":
+            break
+
+        try:
+            profile = profiles[int(raw) - 1]
+        except (ValueError, IndexError):
+            err("Invalid profile number.")
+            pause()
+            continue
+
+        while True:
+            plan = _fw.preview_factory_plan(profile["id"])
+            header(f"{t('menu.factory_wizard')} — {profile['label']}")
+            print(f"  {B}Plan summary{RST}")
+            sep("-")
+            print(f"  App bundle         : {plan['manifest_name']}")
+            print(f"  Packages           : {plan['manifest_packages']}  ({plan['manifest_required']} required, {plan['manifest_optional']} optional)")
+            print(f"  Optimizer profile  : {plan['optimizer_mode']}")
+            print(f"  Power target       : {plan['power_target']}")
+            sep()
+            print(f"  {C}[1]{RST} Run full profile  {DIM}(recommended one-click){RST}")
+            print(f"  {C}[2]{RST} Preview startup/services recommendations")
+            print(f"  {C}[3]{RST} Apply only startup/services optimizer")
+            print(f"  {C}[4]{RST} Install only app bundle (manifest)")
+            print(f"  {C}[5]{RST} Export profile manifest template")
+            print(f"  {C}[0]{RST} Back")
+            sep()
+
+            c = prompt().strip().lower()
+            if c == "0":
+                break
+
+            elif c == "1":
+                checkpoint = prompt("Create restore checkpoint first? [Y/n]: ").strip().lower() != "n"
+                apps = prompt("Install app bundle? [Y/n]: ").strip().lower() != "n"
+                optimize = prompt("Apply startup/services optimizer? [Y/n]: ").strip().lower() != "n"
+                retries_raw = prompt("Retries per package [1]: ").strip()
+                try:
+                    retries = int(retries_raw) if retries_raw else 1
+                except ValueError:
+                    retries = 1
+
+                warn("This will run provisioning actions that change system settings and startup behavior.")
+                if prompt(t("prompt.type_yes_confirm")).upper() not in ("YES", "ANO"):
+                    continue
+
+                info("Running Factory Wizard profile…")
+                try:
+                    result = _fw.run_factory_wizard(
+                        profile["id"],
+                        logger,
+                        create_checkpoint=checkpoint,
+                        install_apps=apps,
+                        optimize_system=optimize,
+                        retries=max(0, retries),
+                    )
+
+                    sep("═")
+                    if result.get("ok"):
+                        ok("Factory Wizard completed successfully.")
+                    else:
+                        warn("Factory Wizard completed with issues. See summary below.")
+
+                    chk = result.get("checkpoint", {})
+                    if chk.get("enabled"):
+                        if chk.get("ok"):
+                            ok(f"Checkpoint: {chk.get('name', '')}")
+                        else:
+                            err(f"Checkpoint failed: {chk.get('error', 'unknown error')}")
+
+                    man = result.get("manifest", {})
+                    if man.get("enabled"):
+                        line = (
+                            f"Manifest '{man.get('name', '')}': installed {man.get('installed', 0)} "
+                            f"failed {man.get('failed', 0)} skipped {man.get('skipped', 0)}"
+                        )
+                        ok(line) if man.get("ok") else err(line)
+
+                    opt_res = result.get("optimizer", {})
+                    if opt_res.get("enabled"):
+                        line = (
+                            f"Optimizer ({opt_res.get('mode', 'n/a')}): startup applied {opt_res.get('startup_applied', 0)} "
+                            f"failed {opt_res.get('startup_failed', 0)}; services applied {opt_res.get('services_applied', 0)} "
+                            f"failed {opt_res.get('services_failed', 0)}"
+                        )
+                        ok(line) if opt_res.get("ok") else err(line)
+
+                    pwr = result.get("power", {})
+                    if pwr:
+                        if pwr.get("ok"):
+                            ok(f"Power plan switched to: {pwr.get('name', pwr.get('target', ''))}")
+                        else:
+                            err(f"Power plan switch failed: {pwr.get('error', 'unknown error')}")
+
+                except Exception as e:
+                    err(str(e))
+                pause()
+
+            elif c == "2":
+                try:
+                    analysis = _fw.analyze_startup_services(logger, mode=profile["optimizer_mode"])
+                    st = analysis["startup"]
+                    sv = analysis["services"]
+
+                    sep()
+                    print(f"  {B}Startup recommendations{RST}")
+                    print(
+                        f"    Total: {st['total']}  |  Disable: {Y}{st['to_disable']}{RST}  |  "
+                        f"Estimated boot gain: {G}{st['estimated_boot_gain_ms']/1000:.1f}s{RST}"
+                    )
+                    shown = 0
+                    for r in st["recommendations"]:
+                        if r["action"] != "disable":
+                            continue
+                        shown += 1
+                        print(f"    {shown:>2}. {r['name'][:34]:<34}  {DIM}{r['reason']}{RST}")
+                        if shown >= 10:
+                            break
+
+                    print(f"\n  {B}Service recommendations{RST}")
+                    print(f"    Total: {sv['total']}  |  Disable: {Y}{sv['to_disable']}{RST}")
+                    shown = 0
+                    for r in sv["recommendations"]:
+                        if r["action"] != "disable":
+                            continue
+                        shown += 1
+                        print(f"    {shown:>2}. {r['display_name'][:34]:<34}  {DIM}{r['reason']}{RST}")
+                        if r.get("risk_note"):
+                            print(f"        {Y}Risk:{RST} {r['risk_note']}")
+                        if shown >= 10:
+                            break
+                except Exception as e:
+                    err(str(e))
+                pause()
+
+            elif c == "3":
+                startup_limit_raw = prompt("Max startup entries to disable [12]: ").strip()
+                service_limit_raw = prompt("Max services to disable [8]: ").strip()
+                try:
+                    startup_limit = int(startup_limit_raw) if startup_limit_raw else 12
+                except ValueError:
+                    startup_limit = 12
+                try:
+                    service_limit = int(service_limit_raw) if service_limit_raw else 8
+                except ValueError:
+                    service_limit = 8
+
+                warn(
+                    f"Apply optimizer profile '{profile['optimizer_mode']}' now? "
+                    "Actions are reversible but require admin rights for some services."
+                )
+                if prompt(t("prompt.type_yes_confirm")).upper() not in ("YES", "ANO"):
+                    continue
+
+                try:
+                    result = _fw.apply_startup_services(
+                        logger,
+                        mode=profile["optimizer_mode"],
+                        startup_limit=max(0, startup_limit),
+                        service_limit=max(0, service_limit),
+                    )
+                    sep()
+                    ok(
+                        f"Applied. Startup: {len(result['startup']['applied'])} ok / {len(result['startup']['failed'])} fail. "
+                        f"Services: {len(result['services']['applied'])} ok / {len(result['services']['failed'])} fail."
+                    )
+                except Exception as e:
+                    err(str(e))
+                pause()
+
+            elif c == "4":
+                retries_raw = prompt("Retries per package [1]: ").strip()
+                try:
+                    retries = int(retries_raw) if retries_raw else 1
+                except ValueError:
+                    retries = 1
+
+                warn(f"Install app bundle for profile '{profile['label']}'?")
+                if prompt(t("prompt.type_yes")).upper() not in ("YES", "ANO"):
+                    continue
+
+                try:
+                    manifest = _pkg.get_builtin_manifest(profile["manifest_profile"])
+                    result = _pkg.install_from_manifest(manifest, logger=logger, retries=max(0, retries))
+                    if result.get("ok"):
+                        ok(
+                            f"Bundle done: installed {result.get('installed', 0)} / {result.get('total', 0)}"
+                            f" (optional skipped {result.get('skipped', 0)})."
+                        )
+                    else:
+                        err(
+                            f"Bundle finished with failures: failed {result.get('failed', 0)} / {result.get('total', 0)}."
+                        )
+                except Exception as e:
+                    err(str(e))
+                pause()
+
+            elif c == "5":
+                default_path = str(Path("manifests") / f"{profile['id']}_factory_template.json")
+                path = prompt(f"Output path [{default_path}]: ").strip().strip('"') or default_path
+                overwrite = prompt("Overwrite if exists? [y/N]: ").strip().lower() == "y"
+                try:
+                    out = _pkg.write_manifest_template(path, profile=profile["manifest_profile"], overwrite=overwrite)
+                    ok(f"Template saved: {out}")
+                except Exception as e:
+                    err(str(e))
+                pause()
+
+            else:
+                err(t("app.unknown_option"))
+                pause()
+
+
 # ── 46. PACKAGE MANAGER ─────────────────────────────────────
 
 def menu_pkgmgr(logger: CleanerLogger):
@@ -5090,6 +5338,9 @@ def menu_pkgmgr(logger: CleanerLogger):
         print(f"  {C}[5]{RST} Show upgradable  {DIM}(winget){RST}")
         print(f"  {C}[6]{RST} Upgrade all  {DIM}(winget){RST}")
         print(f"  {C}[7]{RST} Upgrade all  {DIM}(choco){RST}")
+        print(f"  {C}[8]{RST} Install from manifest JSON")
+        print(f"  {C}[9]{RST} Create manifest template")
+        print(f"  {C}[10]{RST} Install built-in app bundle")
         print(f"  {C}[0]{RST} {t('menu.back')}")
         sep()
         c = prompt()
@@ -5201,6 +5452,128 @@ def menu_pkgmgr(logger: CleanerLogger):
             info("Upgrading all choco packages… (may take several minutes)")
             result = _pkg.choco_upgrade_all(logger)
             ok("Upgrade complete.") if result["ok"] else err(f"Failed (code {result['code']}).")
+            pause()
+
+        elif c == "8":
+            default_path = str(Path("manifests") / "my_setup.json")
+            path = prompt(f"Manifest JSON path [{default_path}]: ").strip().strip('"') or default_path
+            retries_raw = prompt("Retries per package [1]: ").strip()
+            try:
+                retries = int(retries_raw) if retries_raw else 1
+            except ValueError:
+                retries = 1
+
+            info(f"Installing from manifest: {path}")
+            try:
+                result = _pkg.install_from_manifest_file(path, logger=logger, retries=max(0, retries))
+                if result.get("ok"):
+                    ok(
+                        f"Manifest done: installed {result.get('installed', 0)} / {result.get('total', 0)} "
+                        f"(optional skipped {result.get('skipped', 0)})."
+                    )
+                else:
+                    err(
+                        f"Manifest finished with failures: failed {result.get('failed', 0)} / {result.get('total', 0)}."
+                    )
+                    if result.get("error"):
+                        print(f"  {DIM}{result.get('error')}{RST}")
+
+                failed_rows = [r for r in result.get("entries", []) if not r.get("ok") and not r.get("skipped")]
+                if failed_rows:
+                    sep("-")
+                    print("  Failed packages:")
+                    for row in failed_rows[:10]:
+                        print(
+                            f"    {R}•{RST} {row.get('name', row.get('id', 'unknown'))}  "
+                            f"backend={row.get('backend', 'n/a')}  code={row.get('code', 'n/a')}"
+                        )
+
+            except Exception as e:
+                err(str(e))
+            pause()
+
+        elif c == "9":
+            profiles = _pkg.list_builtin_manifest_profiles()
+            sep()
+            print("  Built-in template sources:")
+            for i, name in enumerate(profiles, 1):
+                print(f"  {C}[{i}]{RST} {name}")
+            sep()
+            pick = prompt("Profile number [1]: ").strip() or "1"
+            try:
+                profile_name = profiles[int(pick) - 1]
+            except (ValueError, IndexError):
+                err("Invalid profile number.")
+                pause()
+                continue
+
+            default_path = str(Path("manifests") / f"{profile_name}_template.json")
+            path = prompt(f"Output path [{default_path}]: ").strip().strip('"') or default_path
+            overwrite = prompt("Overwrite if exists? [y/N]: ").strip().lower() == "y"
+
+            try:
+                out = _pkg.write_manifest_template(path, profile=profile_name, overwrite=overwrite)
+                ok(f"Template saved: {out}")
+            except Exception as e:
+                err(str(e))
+            pause()
+
+        elif c == "10":
+            profiles = _pkg.list_builtin_manifest_profiles()
+            sep()
+            print("  Built-in app bundles:")
+            for i, name in enumerate(profiles, 1):
+                try:
+                    m = _pkg.get_builtin_manifest(name)
+                    desc = m.get("description", "")
+                    total = len(m.get("packages", []))
+                    print(f"  {C}[{i}]{RST} {name:<10}  {total:>2} packages  {DIM}{desc}{RST}")
+                except Exception:
+                    print(f"  {C}[{i}]{RST} {name}")
+            sep()
+
+            pick = prompt("Bundle number [1]: ").strip() or "1"
+            retries_raw = prompt("Retries per package [1]: ").strip()
+            try:
+                retries = int(retries_raw) if retries_raw else 1
+            except ValueError:
+                retries = 1
+
+            try:
+                profile_name = profiles[int(pick) - 1]
+            except (ValueError, IndexError):
+                err("Invalid bundle number.")
+                pause()
+                continue
+
+            warn(f"Install built-in bundle '{profile_name}'?")
+            if prompt(t("prompt.type_yes")).upper() not in ("YES", "ANO"):
+                continue
+
+            try:
+                manifest = _pkg.get_builtin_manifest(profile_name)
+                result = _pkg.install_from_manifest(manifest, logger=logger, retries=max(0, retries))
+                if result.get("ok"):
+                    ok(
+                        f"Bundle done: installed {result.get('installed', 0)} / {result.get('total', 0)}"
+                        f" (optional skipped {result.get('skipped', 0)})."
+                    )
+                else:
+                    err(
+                        f"Bundle finished with failures: failed {result.get('failed', 0)} / {result.get('total', 0)}."
+                    )
+
+                failed_rows = [r for r in result.get("entries", []) if not r.get("ok") and not r.get("skipped")]
+                if failed_rows:
+                    sep("-")
+                    print("  Failed packages:")
+                    for row in failed_rows[:10]:
+                        print(
+                            f"    {R}•{RST} {row.get('name', row.get('id', 'unknown'))}  "
+                            f"backend={row.get('backend', 'n/a')}  code={row.get('code', 'n/a')}"
+                        )
+            except Exception as e:
+                err(str(e))
             pause()
 
         else:
