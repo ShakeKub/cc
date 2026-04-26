@@ -2169,38 +2169,44 @@ def menu_scout(logger: CleanerLogger):
 
     # Event type display config
     TYPE_COLOR = {
-        "CREATE":        G,
-        "MODIFY":        Y,
-        "DELETE":        R,
-        "MOVE":          C,
-        "DOWNLOAD":      G,
+        "CREATE":          G,
+        "MODIFY":          Y,
+        "DELETE":          R,
+        "MOVE":            C,
+        "DOWNLOAD":        G,
         "DOWNLOAD_UPDATE": Y,
-        "SPAWN":         G,
-        "EXIT":          DIM,
-        "TARGET_FOUND":  Y,
-        "CONNECT":       C,
-        "REG_ADD":       G,
-        "REG_ADD_KEY":   G,
-        "REG_MODIFY":    Y,
-        "REG_DELETE":    R,
-        "REG_DEL_KEY":   R,
+        "SPAWN":           G,
+        "EXIT":            DIM,
+        "TARGET_FOUND":    Y,
+        "CONNECT":         C,
+        "REG_ADD":         G,
+        "REG_ADD_KEY":     G,
+        "REG_MODIFY":      Y,
+        "REG_DELETE":      R,
+        "REG_DEL_KEY":     R,
+        "DLL_LOAD":        C,
+        "DLL_WARN":        Y,
+        "FILE_ACCESS":     G,
     }
     TYPE_LABEL = {
-        "CREATE":        "FILE+  ",
-        "MODIFY":        "FILE~  ",
-        "DELETE":        "FILE-  ",
-        "MOVE":          "MOVE   ",
-        "DOWNLOAD":      "DL+    ",
-        "DOWNLOAD_UPDATE": "DL~  ",
-        "SPAWN":         "PROC+  ",
-        "EXIT":          "PROC-  ",
-        "TARGET_FOUND":  "TARGET ",
-        "CONNECT":       "NET    ",
-        "REG_ADD":       "REG+   ",
-        "REG_ADD_KEY":   "REG+K  ",
-        "REG_MODIFY":    "REG~   ",
-        "REG_DELETE":    "REG-   ",
-        "REG_DEL_KEY":   "REG-K  ",
+        "CREATE":          "FILE+  ",
+        "MODIFY":          "FILE~  ",
+        "DELETE":          "FILE-  ",
+        "MOVE":            "MOVE   ",
+        "DOWNLOAD":        "DL+    ",
+        "DOWNLOAD_UPDATE": "DL~    ",
+        "SPAWN":           "PROC+  ",
+        "EXIT":            "PROC-  ",
+        "TARGET_FOUND":    "TARGET ",
+        "CONNECT":         "NET    ",
+        "REG_ADD":         "REG+   ",
+        "REG_ADD_KEY":     "REG+K  ",
+        "REG_MODIFY":      "REG~   ",
+        "REG_DELETE":      "REG-   ",
+        "REG_DEL_KEY":     "REG-K  ",
+        "DLL_LOAD":        "DLL+   ",
+        "DLL_WARN":        "DLL!   ",
+        "FILE_ACCESS":     "FOPEN  ",
     }
 
     while True:
@@ -2208,17 +2214,19 @@ def menu_scout(logger: CleanerLogger):
         if current and current.is_running:
             s = current.get_summary()
             print(f"  {G}[LIVE]{RST} Scouting {B}'{current.app_name}'{RST}")
-            print(f"  Files:{G}{s['file_events']}{RST}  "
+            print(f"  FOpen:{G}{s.get('file_access_events',0)}{RST}  "
+                  f"Files:{G}{s['file_events']}{RST}  "
                   f"Reg:{Y}{s['registry_events']}{RST}  "
                   f"Net:{C}{s['network_events']}{RST}  "
                   f"Procs:{G}{s['process_events']}{RST}  "
-                  f"Downloads:{G}{s['download_events']}{RST}")
+                  f"DLL:{C}{s['dll_events']}{RST}")
         sep()
         print(f"  {C}[1]{RST} Start Scout session  (live feed)")
         print(f"  {C}[2]{RST} Stop active session")
         print(f"  {C}[3]{RST} List saved sessions")
         print(f"  {C}[4]{RST} View session report  {DIM}(added / modified / deleted / unchanged){RST}")
         print(f"  {C}[5]{RST} Delete a session")
+        print(f"  {C}[8]{RST} Export session to file  {DIM}(TXT or JSON){RST}")
         sep("-")
         print(f"  {C}[6]{RST} Pre-launch scan      {DIM}(inspect existing app traces before running){RST}")
         print(f"  {C}[7]{RST} Protected run         {DIM}(snapshot + net block + diff on exit){RST}")
@@ -2238,45 +2246,60 @@ def menu_scout(logger: CleanerLogger):
                 continue
 
             clr()
+            sep("═")
+            print(f"  {C}{B}Scout — Track Application{RST}")
+            sep("═")
+            print(f"  {DIM}Zadejte cestu k exe nebo název procesu.{RST}")
+            print(f"  {DIM}Příklady:{RST}  C:\\tools\\spoofer.exe   nebo   spoofer.exe")
             sep()
-            print(f"  {C}{B}Scout Mode — setup{RST}")
-            sep()
-            print(f"  {DIM}Label    — session name (e.g. 'teams', 'installer').{RST}")
-            print(f"  {DIM}Watch    — folder to monitor for file changes (recursive).{RST}")
-            print(f"  {DIM}Target   — target process exe (e.g. 'Teams.exe') [optional].{RST}")
-            print(f"  {DIM}Monitors — files, registry (HKCU Run/Software), network,{RST}")
-            print(f"  {DIM}           downloads folder, and spawned processes.{RST}")
-            sep()
-
-            app_name = prompt("Session label: ").strip()
-            if not app_name:
+            inp = prompt("  Aplikace: ").strip().strip('"')
+            if not inp:
                 continue
 
-            default_path = os.path.expanduser("~")
-            watch_path = prompt(f"Watch path [{default_path}]: ").strip() or default_path
-            if not os.path.isdir(watch_path):
-                err(f"Directory not found: {watch_path}")
-                pause()
-                continue
+            exe_path   = None
+            proc_name  = inp
+            launch_it  = False
 
-            target_proc = prompt("Target process (e.g. Teams.exe) [Enter = skip]: ").strip() or None
+            if os.path.isfile(inp):
+                exe_path  = inp
+                proc_name = Path(inp).name
+                sep()
+                print(f"  Nalezeno: {G}{inp}{RST}")
+                lc = prompt(f"  {C}[1]{RST} Spustit teď  {C}[2]{RST} Připojit k běžícímu: ").strip()
+                launch_it = (lc != "2")
+            else:
+                # Not a file path — treat as process name; check if already running
+                for p in psutil.process_iter(["name"]):
+                    try:
+                        if p.info["name"].lower() == inp.lower():
+                            sep()
+                            print(f"  {G}Proces '{inp}' běží (PID {p.pid}).{RST}")
+                            proc_name = p.info["name"]
+                            break
+                    except Exception:
+                        pass
+                else:
+                    sep()
+                    print(f"  {DIM}Proces '{inp}' zatím neběží — čeká se na spuštění.{RST}")
 
-            current = ScoutSession(app_name, str(profile_path), logger)
-            current.start(watch_path=watch_path, target_process=target_proc)
+            current = ScoutSession(proc_name, str(profile_path), logger)
+            if launch_it and exe_path:
+                current.start(exe_path=exe_path)
+            else:
+                current.start(target_process=proc_name)
 
             clr()
             sep("═")
-            print(f"  {G}{B}SCOUT MODE — LIVE{RST}  {B}{app_name}{RST}")
-            print(f"  watch : {watch_path}")
-            if target_proc:
-                print(f"  target: {Y}{target_proc}{RST}")
+            print(f"  {G}{B}TRACKING{RST}  {B}{proc_name}{RST}"
+                  + (f"  {DIM}[spuštěno]{RST}" if launch_it else f"  {DIM}[attach]{RST}"))
+            print(f"  {DIM}Sledované cesty:{RST} {', '.join(current.watch_paths)}")
             sep("═")
-            print(f"  {DIM}Legend:{RST}  "
-                  f"{G}FILE+{RST}=create  {Y}FILE~{RST}=modify  {R}FILE-{RST}=delete  {C}MOVE{RST}  "
-                  f"{G}PROC+{RST}=spawn  {G}DL+{RST}=download  "
-                  f"{C}NET{RST}=connect  {G}REG+{RST}=reg add  {Y}REG~{RST}=reg mod  {R}REG-{RST}=reg del")
+            print(f"  {DIM}FOPEN{RST}=soubor otevřen procesem  "
+                  f"{G}FILE+{RST}=vytvořen  {Y}FILE~{RST}=změněn  {R}FILE-{RST}=smazán  "
+                  f"{C}NET{RST}=síť  {C}DLL+{RST}=dll  "
+                  f"{G}REG+{RST}=reg přidán  {Y}REG~{RST}=reg změněn  {R}REG-{RST}=reg smazán")
             sep()
-            print(f"  {DIM}Press Enter to stop{RST}\n")
+            print(f"  {DIM}Stiskněte Enter pro zastavení{RST}\n")
 
             stop_flag = threading.Event()
 
@@ -2303,11 +2326,15 @@ def menu_scout(logger: CleanerLogger):
                         size = ev.get("size", 0)
                         extra = f"  ({fmt_bytes(size)})" if size else ""
                     elif etype == "CONNECT":
-                        extra = f"  [{ev.get('remote_host','')}]"
+                        extra = f"  [{ev.get('remote_host','')}]  pid={ev.get('pid','')}"
                     elif etype == "SPAWN":
-                        extra = f"  pid={ev.get('pid','')} parent={ev.get('parent_pid','')}"
-                    elif etype in ("REG_ADD", "REG_MODIFY", "REG_DELETE"):
-                        extra = f"  val={str(ev.get('new_value', ev.get('value', '')))[:60]}"
+                        extra = f"  pid={ev.get('pid','')} ← {ev.get('parent_pid','')}  {ev.get('exe','')[:50]}"
+                    elif etype in ("REG_ADD", "REG_MODIFY", "REG_DELETE", "REG_ADD_KEY", "REG_DEL_KEY"):
+                        extra = f"  {str(ev.get('new_value', ev.get('value', '')))[:70]}"
+                    elif etype == "DLL_LOAD":
+                        extra = f"  pid={ev.get('pid','')}"
+                    elif etype == "FILE_ACCESS":
+                        extra = f"  pid={ev.get('pid','')}"
                     move_str = f"  →  {dest}" if dest else ""
                     print(f"  {DIM}{ev['time']}{RST}  {col}{label}{RST}  {path}{move_str}{extra}")
                 except _q.Empty:
@@ -2316,12 +2343,14 @@ def menu_scout(logger: CleanerLogger):
             current.stop()
             sep("═")
             s = current.get_summary()
-            ok(f"Session saved — "
+            ok(f"Session uložena  "
+               f"fopen:{G}{s['file_access_events']}{RST}  "
                f"files:{G}{s['file_events']}{RST}  "
                f"reg:{Y}{s['registry_events']}{RST}  "
                f"net:{C}{s['network_events']}{RST}  "
-               f"procs:{G}{s['process_events']}{RST}  "
-               f"dl:{G}{s['download_events']}{RST}")
+               f"proc:{G}{s['process_events']}{RST}  "
+               f"dll:{C}{s['dll_events']}{RST}")
+            print(f"  {DIM}Exportovat? Použijte možnost [8]{RST}")
             current = None
             pause()
 
@@ -2440,6 +2469,62 @@ def menu_scout(logger: CleanerLogger):
                     ok("Deleted.")
             else:
                 err("Session not found.")
+            pause()
+
+        elif c == "8":
+            # ── Export session to file ───────────────────────
+            sessions = ScoutSession.load_sessions(str(profile_path))
+            if not sessions:
+                err("No Scout sessions found.")
+                pause()
+                continue
+            sep()
+            print(f"  {'Session ID':<20}  {'Label':<18}  Events")
+            sep("-")
+            for s in sessions:
+                sm = s.get("summary", {})
+                print(f"  {s.get('session_id',''):<20}  "
+                      f"{s.get('app_name',''):<18}  "
+                      f"{sm.get('total_events', 0)}")
+            sep()
+            sid = prompt("Session ID to export: ").strip()
+            session = next((s for s in sessions if s.get("session_id") == sid), None)
+            if not session:
+                err("Session not found.")
+                pause()
+                continue
+
+            fmt = prompt("Format — [1] TXT  [2] JSON: ").strip()
+            if fmt not in ("1", "2"):
+                err("Invalid choice.")
+                pause()
+                continue
+
+            default_out = str(profile_path / f"scout_export_{sid}.{'txt' if fmt == '1' else 'json'}")
+            out_path = prompt(f"Save to [{default_out}]: ").strip() or default_out
+
+            try:
+                # Reconstruct a ScoutSession object just for export (no monitoring)
+                tmp = ScoutSession(session.get("app_name", ""), str(profile_path), logger)
+                tmp.session_id      = sid
+                tmp.watch_paths     = session.get("watch_paths", [session.get("watch_path", "")])
+                tmp.target_process  = session.get("target_process")
+                tmp.start_time      = session.get("start_time")
+                tmp.file_access_events = session.get("file_access_events", [])
+                tmp.file_events        = session.get("file_events", [])
+                tmp.registry_events    = session.get("registry_events", [])
+                tmp.network_events     = session.get("network_events", [])
+                tmp.process_events     = session.get("process_events", [])
+                tmp.download_events    = session.get("download_events", [])
+                tmp.dll_events         = session.get("dll_events", [])
+
+                if fmt == "1":
+                    saved = tmp.export_txt(out_path)
+                else:
+                    saved = tmp.export_json(out_path)
+                ok(f"Exported → {saved}")
+            except Exception as e:
+                err(str(e))
             pause()
 
         # ── [6] Pre-launch scan ──────────────────────────────

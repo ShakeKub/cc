@@ -1,7 +1,7 @@
 """Scout Mode - Deep application behavior monitoring.
 
 Tracks file I/O, registry changes, network connections, downloads,
-and child-process spawning for a specific target application.
+DLL loading, and child-process spawning for a specific target application.
 All events are queued in real time and saved as structured JSON.
 """
 
@@ -35,6 +35,14 @@ def _snapshot_pids() -> dict[int, str]:
         except Exception:
             pass
     return result
+
+
+def _get_modules(pid: int) -> set:
+    """Return set of loaded DLL/module paths for a PID."""
+    try:
+        return {m.path.lower() for m in psutil.Process(pid).memory_maps() if m.path}
+    except (psutil.NoSuchProcess, psutil.AccessDenied, Exception):
+        return set()
 
 
 def _reverse_dns(ip: str) -> str:
@@ -83,18 +91,61 @@ class ScoutSession:
 
     Monitored categories
     --------------------
-    file      — CREATE / MODIFY / DELETE / MOVE events in watch_path
-    registry  — REG_ADD / REG_MODIFY / REG_DELETE in key monitored hives
-    network   — CONNECT events (new outbound/inbound connections)
+    file      — CREATE / MODIFY / DELETE / MOVE events (home + system dirs)
+    registry  — REG_ADD / REG_MODIFY / REG_DELETE across all major hives
+    network   — CONNECT events (new outbound/inbound connections + reverse DNS)
     process   — SPAWN / EXIT events; TARGET_FOUND when target appears
+    dll       — new DLLs loaded into target process
     download  — files created/grown in the user's Downloads folder
     """
 
-    # Registry hives/keys that are polled for changes
+    # All important registry locations polled for changes (1-second interval)
     _REG_MONITOR = [
-        ("HKCU\\Run",      "HKEY_CURRENT_USER",   r"SOFTWARE\Microsoft\Windows\CurrentVersion\Run"),
-        ("HKLM\\Run",      "HKEY_LOCAL_MACHINE",   r"SOFTWARE\Microsoft\Windows\CurrentVersion\Run"),
-        ("HKCU\\Software", "HKEY_CURRENT_USER",    r"SOFTWARE"),
+        # ── Startup / persistence ───────────────────────────────────────────
+        ("HKCU\\Run",         "HKEY_CURRENT_USER",  r"SOFTWARE\Microsoft\Windows\CurrentVersion\Run"),
+        ("HKCU\\RunOnce",     "HKEY_CURRENT_USER",  r"SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce"),
+        ("HKLM\\Run",         "HKEY_LOCAL_MACHINE", r"SOFTWARE\Microsoft\Windows\CurrentVersion\Run"),
+        ("HKLM\\RunOnce",     "HKEY_LOCAL_MACHINE", r"SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce"),
+        ("HKLM\\Run32",       "HKEY_LOCAL_MACHINE", r"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Run"),
+        # ── Installed software (top-level key detection) ────────────────────
+        ("HKCU\\Software",    "HKEY_CURRENT_USER",  r"SOFTWARE"),
+        ("HKLM\\Software",    "HKEY_LOCAL_MACHINE", r"SOFTWARE"),
+        ("HKLM\\Software32",  "HKEY_LOCAL_MACHINE", r"SOFTWARE\WOW6432Node"),
+        # ── Uninstall entries ───────────────────────────────────────────────
+        ("HKLM\\Uninstall",   "HKEY_LOCAL_MACHINE", r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall"),
+        ("HKLM\\Uninst32",    "HKEY_LOCAL_MACHINE", r"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall"),
+        # ── Authentication / Winlogon hooks ─────────────────────────────────
+        ("HKLM\\Winlogon",    "HKEY_LOCAL_MACHINE", r"SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon"),
+        ("HKLM\\LSA",         "HKEY_LOCAL_MACHINE", r"SYSTEM\CurrentControlSet\Control\Lsa"),
+        # ── Services (detects new/removed services) ─────────────────────────
+        ("HKLM\\Services",    "HKEY_LOCAL_MACHINE", r"SYSTEM\CurrentControlSet\Services"),
+        # ── File associations / COM ─────────────────────────────────────────
+        ("HKCU\\Classes",     "HKEY_CURRENT_USER",  r"SOFTWARE\Classes"),
+        # ── Environment variables ───────────────────────────────────────────
+        ("HKCU\\Env",         "HKEY_CURRENT_USER",  r"Environment"),
+        ("HKLM\\SysEnv",      "HKEY_LOCAL_MACHINE", r"SYSTEM\CurrentControlSet\Control\Session Manager\Environment"),
+        # ── Browser helper objects ──────────────────────────────────────────
+        ("HKLM\\BHO",         "HKEY_LOCAL_MACHINE", r"SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Browser Helper Objects"),
+        # ── Shell extensions / context menu handlers ────────────────────────
+        ("HKLM\\ShellExec",   "HKEY_LOCAL_MACHINE", r"SOFTWARE\Microsoft\Windows\CurrentVersion\Shell Extensions\Approved"),
+        # ── Scheduled tasks registry cache ──────────────────────────────────
+        ("HKLM\\TaskCache",   "HKEY_LOCAL_MACHINE", r"SOFTWARE\Microsoft\Windows NT\CurrentVersion\Schedule\TaskCache\Tasks"),
+        # ── Group policy / restrictions ─────────────────────────────────────
+        ("HKLM\\Policies",    "HKEY_LOCAL_MACHINE", r"SOFTWARE\Policies\Microsoft\Windows"),
+        ("HKCU\\Policies",    "HKEY_CURRENT_USER",  r"SOFTWARE\Policies\Microsoft\Windows"),
+        # ── Firewall ───────────────────────────────────────────────────────
+        ("HKLM\\FWProfiles",  "HKEY_LOCAL_MACHINE", r"SYSTEM\CurrentControlSet\Services\SharedAccess\Parameters\FirewallPolicy"),
+        # ── AppInit DLLs (classic DLL injection vector) ─────────────────────
+        ("HKLM\\AppInit",     "HKEY_LOCAL_MACHINE", r"SOFTWARE\Microsoft\Windows NT\CurrentVersion\Windows"),
+        # ── Image File Execution Options (debugger hijack / IFEO) ───────────
+        ("HKLM\\IFEO",        "HKEY_LOCAL_MACHINE", r"SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options"),
+    ]
+
+    # Extra watch directories beyond the user-specified path (Windows system paths)
+    _SYSTEM_WATCH_DIRS = [
+        r"C:\ProgramData",
+        r"C:\Program Files",
+        r"C:\Program Files (x86)",
     ]
 
     def __init__(self, app_name: str, profile_path: str, logger: CleanerLogger):
@@ -114,27 +165,82 @@ class ScoutSession:
         self.network_events:  list[dict] = []
         self.process_events:  list[dict] = []
         self.download_events: list[dict] = []
+        self.dll_events:      list[dict] = []
 
         self._threads:   list[threading.Thread] = []
         self._observer:  Observer | None = None
 
-        self.watch_path     = os.path.expanduser("~")
-        self.downloads_path = str(Path.home() / "Downloads")
-        self.target_process: str | None = None
-        self._target_pids:   set[int] = set()
+        self.watch_path       = os.path.expanduser("~")
+        self.watch_paths:     list[str] = []          # populated in start()
+        self.downloads_path   = str(Path.home() / "Downloads")
+        self.target_process:  str | None = None
+        self._target_pids:    set[int] = set()
+        self._launched_process = None           # subprocess.Popen if we launched the exe
+        self.file_access_events: list[dict] = []  # files opened by target process
 
     # ── public API ───────────────────────────────────────────────────────────
 
-    def start(self, watch_path: str | None = None, target_process: str | None = None) -> None:
-        if watch_path:
-            self.watch_path = watch_path
+    def start(self, exe_path: str | None = None,
+              watch_path: str | None = None,
+              target_process: str | None = None) -> None:
+        """Start monitoring.
+
+        exe_path       — full path to the executable to launch. If given the
+                         process is started automatically and its PID is
+                         immediately added to the tracked set.
+        watch_path     — explicit base directory for the file watcher. When
+                         omitted the exe directory (or home) is used.
+        target_process — process name to match (inferred from exe_path when
+                         not supplied).
+        """
+        import subprocess
+
+        # Resolve target process name
+        if exe_path and not target_process:
+            target_process = Path(exe_path).name
         if target_process:
             self.target_process = target_process.lower()
 
+        # Resolve base watch path
+        if watch_path:
+            self.watch_path = watch_path
+        elif exe_path:
+            self.watch_path = str(Path(exe_path).parent)
+
+        # Build deduplicated watch-path list
+        candidates = [self.watch_path] + self._SYSTEM_WATCH_DIRS
+        # Also add user env dirs that may be outside home (e.g. LOCALAPPDATA on some setups)
+        for env_var in ("APPDATA", "LOCALAPPDATA", "TEMP", "TMP"):
+            p = os.environ.get(env_var, "")
+            if p:
+                candidates.append(p)
+        scheduled: list[str] = []
+        for p in candidates:
+            if not p or not os.path.isdir(p):
+                continue
+            norm = os.path.normcase(os.path.abspath(p))
+            if any(norm.startswith(os.path.normcase(os.path.abspath(s)) + os.sep)
+                   for s in scheduled):
+                continue  # already covered by a parent watcher
+            scheduled.append(p)
+        self.watch_paths = scheduled
+
         self.is_running = True
         self.start_time = time.time()
+
+        # Launch the exe before any monitoring starts so we can grab the PID
+        if exe_path:
+            try:
+                self._launched_process = subprocess.Popen([exe_path])
+                # Give the OS a moment, then pre-seed the target-PID set
+                time.sleep(0.3)
+                self._target_pids.add(self._launched_process.pid)
+            except Exception as e:
+                self.logger.error(f"Failed to launch '{exe_path}': {e}")
+
         self.logger.log("scout_start", "scout",
-                        f"app='{self.app_name}' watch='{self.watch_path}' "
+                        f"app='{self.app_name}' exe='{exe_path}' "
+                        f"watch={self.watch_paths} "
                         f"target='{self.target_process}' id={self.session_id}")
 
         self._observer = Observer()
@@ -143,6 +249,8 @@ class ScoutSession:
         self._observer.start()
 
         self._start_process_monitor()
+        self._start_dll_monitor()
+        self._start_open_files_monitor()
         self._start_network_monitor()
         self._start_registry_monitor()
 
@@ -184,14 +292,22 @@ class ScoutSession:
             def on_moved(self, e):
                 self._emit("MOVE", e.src_path, e.dest_path)
 
-        self._observer.schedule(_Handler(), self.watch_path, recursive=True)
+        h = _Handler()
+        for wp in self.watch_paths:
+            self._observer.schedule(h, wp, recursive=True)
 
     # ── downloads watcher ────────────────────────────────────────────────────
 
     def _start_download_watcher(self) -> None:
         dl = self.downloads_path
-        if not os.path.isdir(dl) or dl == self.watch_path:
+        # Skip if Downloads is already covered by one of the scheduled watchers
+        if not os.path.isdir(dl):
             return
+        dl_norm = os.path.normcase(os.path.abspath(dl))
+        for wp in self.watch_paths:
+            wp_norm = os.path.normcase(os.path.abspath(wp))
+            if dl_norm.startswith(wp_norm + os.sep) or dl_norm == wp_norm:
+                return
 
         session = self
 
@@ -236,16 +352,22 @@ class ScoutSession:
 
                     for pid, name in cur_pids.items():
                         if pid not in prev_pids:
-                            parent_pid, cmdline = None, ""
+                            parent_pid, cmdline, exe, cwd, username = None, "", "", "", ""
                             try:
                                 p = psutil.Process(pid)
                                 parent_pid = p.ppid()
-                                cmdline = " ".join(p.cmdline())
+                                cmdline    = " ".join(p.cmdline())
+                                exe        = p.exe()
+                                cwd        = p.cwd()
+                                username   = p.username()
                             except Exception:
                                 pass
-                            ev = {"type": "SPAWN", "path": name, "pid": pid,
-                                  "parent_pid": parent_pid, "cmdline": cmdline[:300],
-                                  "time": _ts(), "category": "process"}
+                            ev = {
+                                "type": "SPAWN", "path": name, "pid": pid,
+                                "parent_pid": parent_pid, "cmdline": cmdline[:400],
+                                "exe": exe, "cwd": cwd, "username": username,
+                                "time": _ts(), "category": "process",
+                            }
                             self.process_events.append(ev)
                             self.event_queue.put(ev)
                             if self.target_process and parent_pid in self._target_pids:
@@ -273,6 +395,100 @@ class ScoutSession:
                     pass
 
         t = threading.Thread(target=run, daemon=True, name="ScoutProcMon")
+        t.start()
+        self._threads.append(t)
+
+    # ── open-files monitor (per-process file access) ─────────────────────────
+
+    def _start_open_files_monitor(self) -> None:
+        """Poll open file handles of every tracked PID every 0.2 s.
+
+        This gives us a process-filtered list of files the target application
+        actually touched, independent of the broad watchdog observer.
+        """
+        session = self
+
+        def run():
+            seen: set[str] = set()
+            while session.is_running:
+                time.sleep(0.2)
+                for pid in list(session._target_pids):
+                    try:
+                        for f in psutil.Process(pid).open_files():
+                            norm = f.path.lower()
+                            if norm not in seen:
+                                seen.add(norm)
+                                ev = {
+                                    "type": "FILE_ACCESS",
+                                    "path": f.path,
+                                    "pid": pid,
+                                    "time": _ts(),
+                                    "category": "file_access",
+                                }
+                                session.file_access_events.append(ev)
+                                session.event_queue.put(ev)
+                    except (psutil.NoSuchProcess, psutil.AccessDenied, Exception):
+                        pass
+
+        t = threading.Thread(target=run, daemon=True, name="ScoutOpenFiles")
+        t.start()
+        self._threads.append(t)
+
+    # ── DLL monitor ──────────────────────────────────────────────────────────
+
+    def _start_dll_monitor(self) -> None:
+        """Poll loaded modules of the target process (and its children) for new DLLs."""
+        def run():
+            # {pid: set_of_known_dll_paths}
+            dll_snapshots: dict[int, set] = {}
+            warned_no_access: set[int] = set()
+
+            while self.is_running:
+                time.sleep(1)
+                try:
+                    pids_to_watch = set(self._target_pids)
+                    if not pids_to_watch:
+                        continue
+
+                    for pid in pids_to_watch:
+                        cur_dlls = _get_modules(pid)
+                        prev_dlls = dll_snapshots.get(pid)
+
+                        if prev_dlls is None:
+                            # First snapshot for this PID
+                            dll_snapshots[pid] = cur_dlls
+                            continue
+
+                        if not cur_dlls and not prev_dlls and pid not in warned_no_access:
+                            warned_no_access.add(pid)
+                            ev = {
+                                "type": "DLL_WARN",
+                                "path": f"Cannot read modules for PID {pid} (run as admin)",
+                                "pid": pid, "time": _ts(), "category": "dll",
+                            }
+                            self.dll_events.append(ev)
+                            self.event_queue.put(ev)
+                            continue
+
+                        for dll in cur_dlls - prev_dlls:
+                            ev = {
+                                "type": "DLL_LOAD",
+                                "path": dll, "pid": pid,
+                                "time": _ts(), "category": "dll",
+                            }
+                            self.dll_events.append(ev)
+                            self.event_queue.put(ev)
+
+                        dll_snapshots[pid] = cur_dlls
+
+                    # Clean up PIDs that are no longer tracked
+                    for pid in list(dll_snapshots):
+                        if pid not in pids_to_watch:
+                            del dll_snapshots[pid]
+                except Exception:
+                    pass
+
+        t = threading.Thread(target=run, daemon=True, name="ScoutDLLMon")
         t.start()
         self._threads.append(t)
 
@@ -364,7 +580,7 @@ class ScoutSession:
                     prev_snaps[label] = _snapshot_reg_key(hive, key_path)
 
             while self.is_running:
-                time.sleep(2)
+                time.sleep(1)  # 1-second poll for fast detection
                 for label, hive_name, key_path in self._REG_MONITOR:
                     hive = hive_map.get(hive_name)
                     if hive is None:
@@ -407,37 +623,129 @@ class ScoutSession:
     def get_summary(self) -> dict:
         duration = (time.time() - self.start_time) if self.start_time else 0
         return {
-            "app_name":       self.app_name,
-            "session_id":     self.session_id,
-            "duration_s":     round(duration, 1),
-            "file_events":    len(self.file_events),
-            "registry_events": len(self.registry_events),
-            "network_events": len(self.network_events),
-            "process_events": len(self.process_events),
-            "download_events": len(self.download_events),
-            "total_events":   (len(self.file_events) + len(self.registry_events) +
-                               len(self.network_events) + len(self.process_events) +
-                               len(self.download_events)),
+            "app_name":          self.app_name,
+            "session_id":        self.session_id,
+            "duration_s":        round(duration, 1),
+            "file_events":       len(self.file_events),
+            "file_access_events": len(self.file_access_events),
+            "registry_events":   len(self.registry_events),
+            "network_events":    len(self.network_events),
+            "process_events":    len(self.process_events),
+            "download_events":   len(self.download_events),
+            "dll_events":        len(self.dll_events),
+            "total_events":      (len(self.file_events) + len(self.file_access_events) +
+                                  len(self.registry_events) + len(self.network_events) +
+                                  len(self.process_events) + len(self.download_events) +
+                                  len(self.dll_events)),
         }
 
     def _save_session(self) -> None:
         os.makedirs(self.profile_path, exist_ok=True)
         data = {
-            "app_name":       self.app_name,
-            "session_id":     self.session_id,
-            "watch_path":     self.watch_path,
-            "target_process": self.target_process,
-            "start_time":     self.start_time,
-            "end_time":       time.time(),
-            "summary":        self.get_summary(),
-            "file_events":    self.file_events,
-            "registry_events": self.registry_events,
-            "network_events": self.network_events,
-            "process_events": self.process_events,
-            "download_events": self.download_events,
+            "app_name":           self.app_name,
+            "session_id":         self.session_id,
+            "watch_paths":        self.watch_paths,
+            "target_process":     self.target_process,
+            "start_time":         self.start_time,
+            "end_time":           time.time(),
+            "summary":            self.get_summary(),
+            "file_access_events": self.file_access_events,
+            "file_events":        self.file_events,
+            "registry_events":    self.registry_events,
+            "network_events":     self.network_events,
+            "process_events":     self.process_events,
+            "download_events":    self.download_events,
+            "dll_events":         self.dll_events,
         }
         with open(self.session_file, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2)
+
+    def _build_export_data(self) -> dict:
+        return {
+            "app_name":           self.app_name,
+            "session_id":         self.session_id,
+            "watch_paths":        self.watch_paths,
+            "target_process":     self.target_process,
+            "start_time":         self.start_time,
+            "end_time":           time.time(),
+            "summary":            self.get_summary(),
+            "file_access_events": self.file_access_events,
+            "file_events":        self.file_events,
+            "registry_events":    self.registry_events,
+            "network_events":     self.network_events,
+            "process_events":     self.process_events,
+            "download_events":    self.download_events,
+            "dll_events":         self.dll_events,
+        }
+
+    def export_json(self, filepath: str | None = None) -> str:
+        """Export the session to a JSON file and return the path."""
+        if filepath is None:
+            filepath = os.path.join(
+                self.profile_path, f"scout_export_{self.session_id}.json"
+            )
+        os.makedirs(os.path.dirname(filepath) or ".", exist_ok=True)
+        with open(filepath, "w", encoding="utf-8") as f:
+            json.dump(self._build_export_data(), f, indent=2, ensure_ascii=False)
+        return filepath
+
+    def export_txt(self, filepath: str | None = None) -> str:
+        """Export the session as a human-readable text report and return the path."""
+        if filepath is None:
+            filepath = os.path.join(
+                self.profile_path, f"scout_export_{self.session_id}.txt"
+            )
+        os.makedirs(os.path.dirname(filepath) or ".", exist_ok=True)
+        sm = self.get_summary()
+        lines = [
+            "=" * 72,
+            "  SCOUT SESSION REPORT",
+            "=" * 72,
+            f"  Label          : {self.app_name}",
+            f"  Session ID     : {self.session_id}",
+            f"  Duration       : {sm['duration_s']} s",
+            f"  Watch paths    : {', '.join(self.watch_paths)}",
+            f"  Target process : {self.target_process or 'all'}",
+            f"  Total events   : {sm['total_events']}",
+            "=" * 72,
+            "",
+        ]
+
+        sections = [
+            ("FILES ACCESSED BY PROCESS", self.file_access_events,
+             ["type", "path", "pid", "time"]),
+            ("FILE SYSTEM CHANGES (all processes)", self.file_events,
+             ["type", "path", "dest", "time"]),
+            ("REGISTRY CHANGES",  self.registry_events,
+             ["type", "path", "value", "old_value", "new_value", "time"]),
+            ("NETWORK CONNECTIONS", self.network_events,
+             ["type", "path", "remote_host", "process", "status", "time"]),
+            ("PROCESSES",          self.process_events,
+             ["type", "path", "pid", "parent_pid", "cmdline", "exe", "username", "time"]),
+            ("DLLS LOADED",        self.dll_events,
+             ["type", "path", "pid", "time"]),
+            ("DOWNLOADS",          self.download_events,
+             ["type", "path", "size", "time"]),
+        ]
+
+        for title, events, fields in sections:
+            if not events:
+                continue
+            lines.append("─" * 72)
+            lines.append(f"  {title}  ({len(events)})")
+            lines.append("─" * 72)
+            for ev in events:
+                parts = []
+                for field in fields:
+                    v = ev.get(field)
+                    if v is not None and v != "":
+                        parts.append(f"{field}={str(v)[:120]}")
+                lines.append("  " + "  ".join(parts))
+            lines.append("")
+
+        with open(filepath, "w", encoding="utf-8") as f:
+            f.write("\n".join(lines))
+        return filepath
 
     @staticmethod
     def load_sessions(profile_path: str) -> list[dict]:
