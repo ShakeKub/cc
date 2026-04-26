@@ -678,6 +678,345 @@ class ScoutSession:
             "dll_events":         self.dll_events,
         }
 
+    def export_html(self, filepath: str | None = None) -> str:
+        """Export session as a self-contained interactive HTML report."""
+        import html as _html
+        import datetime as _dt
+
+        if filepath is None:
+            filepath = os.path.join(
+                self.profile_path, f"scout_export_{self.session_id}.html"
+            )
+        os.makedirs(os.path.dirname(filepath) or ".", exist_ok=True)
+
+        sm = self.get_summary()
+
+        def esc(v: object) -> str:
+            return _html.escape(str(v)) if v is not None else ""
+
+        try:
+            start_dt = _dt.datetime.fromtimestamp(self.start_time).strftime("%Y-%m-%d %H:%M:%S")
+        except Exception:
+            start_dt = "?"
+
+        TYPE_CLS = {
+            "CREATE": "c-grn", "MODIFY": "c-yel", "DELETE": "c-red", "MOVE": "c-cyn",
+            "FILE_ACCESS": "c-grn",
+            "CONNECT": "c-cyn",
+            "REG_ADD": "c-grn", "REG_ADD_KEY": "c-grn",
+            "REG_MODIFY": "c-yel",
+            "REG_DELETE": "c-red", "REG_DEL_KEY": "c-red",
+            "SPAWN": "c-grn", "EXIT": "c-dim", "TARGET_FOUND": "c-yel",
+            "DLL_LOAD": "c-cyn", "DLL_WARN": "c-yel",
+            "DOWNLOAD": "c-grn", "DOWNLOAD_UPDATE": "c-yel",
+        }
+
+        def badge(etype: str) -> str:
+            cls = TYPE_CLS.get(etype, "")
+            return f'<span class="bdg {cls}">{esc(etype)}</span>'
+
+        def td_trunc(value: object) -> str:
+            return f'<td class="trunc">{esc(value)}</td>'
+
+        def build_rows_file_access(evs: list) -> str:
+            rows = []
+            for ev in evs:
+                rows.append(
+                    f'<tr><td class="tm">{esc(ev.get("time",""))}</td>'
+                    f'<td>{esc(ev.get("pid",""))}</td>'
+                    f'{td_trunc(ev.get("path",""))}</tr>'
+                )
+            return "".join(rows)
+
+        def build_rows_files(evs: list) -> str:
+            rows = []
+            for ev in evs:
+                dest = ev.get("dest", "")
+                rows.append(
+                    f'<tr><td class="tm">{esc(ev.get("time",""))}</td>'
+                    f'<td>{badge(ev.get("type",""))}</td>'
+                    f'{td_trunc(ev.get("path",""))}'
+                    f'{td_trunc(dest) if dest else "<td></td>"}</tr>'
+                )
+            return "".join(rows)
+
+        def build_rows_registry(evs: list) -> str:
+            rows = []
+            for ev in evs:
+                old_v = str(ev.get("old_value", ""))[:300]
+                new_v = str(ev.get("new_value", ev.get("value", "")))[:300]
+                rows.append(
+                    f'<tr><td class="tm">{esc(ev.get("time",""))}</td>'
+                    f'<td>{badge(ev.get("type",""))}</td>'
+                    f'{td_trunc(ev.get("path",""))}'
+                    f'{td_trunc(old_v)}'
+                    f'{td_trunc(new_v)}</tr>'
+                )
+            return "".join(rows)
+
+        def build_rows_network(evs: list) -> str:
+            rows = []
+            for ev in evs:
+                rows.append(
+                    f'<tr><td class="tm">{esc(ev.get("time",""))}</td>'
+                    f'<td>{esc(ev.get("process",""))}</td>'
+                    f'<td>{esc(ev.get("pid",""))}</td>'
+                    f'<td class="mono">{esc(ev.get("local",""))}</td>'
+                    f'<td class="mono">{esc(ev.get("remote",""))}</td>'
+                    f'{td_trunc(ev.get("remote_host",""))}'
+                    f'<td>{esc(ev.get("status",""))}</td></tr>'
+                )
+            return "".join(rows)
+
+        def build_rows_process(evs: list) -> str:
+            rows = []
+            for ev in evs:
+                rows.append(
+                    f'<tr><td class="tm">{esc(ev.get("time",""))}</td>'
+                    f'<td>{badge(ev.get("type",""))}</td>'
+                    f'<td>{esc(ev.get("path",""))}</td>'
+                    f'<td>{esc(ev.get("pid",""))}</td>'
+                    f'<td>{esc(ev.get("parent_pid",""))}</td>'
+                    f'{td_trunc(ev.get("exe",""))}'
+                    f'{td_trunc(ev.get("cmdline",""))}'
+                    f'<td>{esc(ev.get("username",""))}</td></tr>'
+                )
+            return "".join(rows)
+
+        def build_rows_dll(evs: list) -> str:
+            rows = []
+            for ev in evs:
+                rows.append(
+                    f'<tr><td class="tm">{esc(ev.get("time",""))}</td>'
+                    f'<td>{badge(ev.get("type",""))}</td>'
+                    f'<td>{esc(ev.get("pid",""))}</td>'
+                    f'{td_trunc(ev.get("path",""))}</tr>'
+                )
+            return "".join(rows)
+
+        def build_rows_download(evs: list) -> str:
+            rows = []
+            for ev in evs:
+                size = ev.get("size", 0)
+                size_str = f"{size:,} B" if size else ""
+                rows.append(
+                    f'<tr><td class="tm">{esc(ev.get("time",""))}</td>'
+                    f'<td>{badge(ev.get("type",""))}</td>'
+                    f'{td_trunc(ev.get("path",""))}'
+                    f'<td>{size_str}</td></tr>'
+                )
+            return "".join(rows)
+
+        def panel_table(tab_id: str, headers: list, rows_html: str, count: int) -> str:
+            if not rows_html:
+                return '<div class="no-ev">Žádné události</div>'
+            ths = "".join(
+                f'<th onclick="sortTbl(this)">{h}</th>' for h in headers
+            )
+            return (
+                f'<div class="cnt-info" id="ci-{tab_id}">{count} událostí</div>'
+                f'<div class="tbl-wrap">'
+                f'<table id="tbl-{tab_id}"><thead><tr>{ths}</tr></thead>'
+                f'<tbody>{rows_html}</tbody></table></div>'
+            )
+
+        panels_data = [
+            ("fopen", "Soubory (proces)",    sm.get("file_access_events", 0),
+             panel_table("fopen", ["Čas", "PID", "Cesta"],
+                         build_rows_file_access(self.file_access_events),
+                         sm.get("file_access_events", 0))),
+            ("files", "Změny souborů",       sm.get("file_events", 0),
+             panel_table("files", ["Čas", "Typ", "Cesta", "Cíl"],
+                         build_rows_files(self.file_events),
+                         sm.get("file_events", 0))),
+            ("reg",   "Registr",             sm.get("registry_events", 0),
+             panel_table("reg", ["Čas", "Typ", "Klíč / Hodnota", "Stará data", "Nová data"],
+                         build_rows_registry(self.registry_events),
+                         sm.get("registry_events", 0))),
+            ("net",   "Síť",                 sm.get("network_events", 0),
+             panel_table("net", ["Čas", "Proces", "PID", "Local", "Remote", "Hostname", "Status"],
+                         build_rows_network(self.network_events),
+                         sm.get("network_events", 0))),
+            ("proc",  "Procesy",             sm.get("process_events", 0),
+             panel_table("proc", ["Čas", "Typ", "Název", "PID", "Parent", "Exe", "Cmdline", "User"],
+                         build_rows_process(self.process_events),
+                         sm.get("process_events", 0))),
+            ("dll",   "DLL",                 sm.get("dll_events", 0),
+             panel_table("dll", ["Čas", "Typ", "PID", "Cesta"],
+                         build_rows_dll(self.dll_events),
+                         sm.get("dll_events", 0))),
+            ("dl",    "Downloady",           sm.get("download_events", 0),
+             panel_table("dl", ["Čas", "Typ", "Cesta", "Velikost"],
+                         build_rows_download(self.download_events),
+                         sm.get("download_events", 0))),
+        ]
+
+        cards_html = "\n".join(
+            f'<div class="card" onclick="switchTab(\'{tid}\')" style="cursor:pointer">'
+            f'<div class="num" style="color:{color}">{sm.get(key, 0)}</div>'
+            f'<div class="lbl">{label}</div></div>'
+            for (tid, label, color, key) in [
+                ("fopen", "Soubory (proces)",  "#3fb950", "file_access_events"),
+                ("files", "Změny souborů",     "#d29922", "file_events"),
+                ("reg",   "Registr",           "#79c0ff", "registry_events"),
+                ("net",   "Síť",               "#79c0ff", "network_events"),
+                ("proc",  "Procesy",           "#3fb950", "process_events"),
+                ("dll",   "DLL",               "#79c0ff", "dll_events"),
+                ("dl",    "Downloady",         "#3fb950", "download_events"),
+            ]
+        )
+
+        tabs_html = "\n".join(
+            f'<div class="tab{" active" if i == 0 else ""}" '
+            f'id="tab-{tid}" onclick="switchTab(\'{tid}\')">'
+            f'{label} <span class="tbdg">{count}</span></div>'
+            for i, (tid, label, count, _) in enumerate(panels_data)
+        )
+
+        panels_html = "\n".join(
+            f'<div class="panel{" active" if i == 0 else ""}" id="panel-{tid}">'
+            f'<div class="srch-bar">'
+            f'<input type="text" placeholder="Hledat v {label}…" '
+            f'oninput="filterTbl(this,\'tbl-{tid}\',\'ci-{tid}\')">'
+            f'</div>{content}</div>'
+            for i, (tid, label, count, content) in enumerate(panels_data)
+        )
+
+        watch_str = esc(", ".join(self.watch_paths) if self.watch_paths else "—")
+
+        doc = f"""<!DOCTYPE html>
+<html lang="cs">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Scout Report — {esc(self.app_name)}</title>
+<style>
+*{{box-sizing:border-box;margin:0;padding:0}}
+body{{background:#0d1117;color:#c9d1d9;font-family:'Consolas','Courier New',monospace;font-size:13px;line-height:1.5}}
+.hdr{{background:#161b22;border-bottom:1px solid #30363d;padding:18px 28px}}
+.hdr h1{{color:#58a6ff;font-size:17px;font-weight:bold;letter-spacing:.3px}}
+.hdr .meta{{color:#8b949e;margin-top:7px;font-size:11px;line-height:1.9}}
+.hdr .meta b{{color:#c9d1d9}}
+.hdr .paths{{color:#8b949e;font-size:10px;margin-top:4px;word-break:break-all}}
+.cards{{display:flex;gap:10px;padding:14px 28px;flex-wrap:wrap;border-bottom:1px solid #21262d}}
+.card{{background:#161b22;border:1px solid #30363d;border-radius:6px;padding:12px 16px;min-width:105px;transition:border-color .15s}}
+.card:hover{{border-color:#58a6ff}}
+.card .num{{font-size:22px;font-weight:bold}}
+.card .lbl{{color:#8b949e;font-size:10px;margin-top:3px;text-transform:uppercase;letter-spacing:.6px}}
+.tabs{{display:flex;background:#0d1117;border-bottom:1px solid #30363d;padding:0 28px;overflow-x:auto}}
+.tab{{padding:9px 15px;cursor:pointer;color:#8b949e;border-bottom:2px solid transparent;font-size:12px;white-space:nowrap;transition:color .12s}}
+.tab:hover{{color:#c9d1d9}}
+.tab.active{{color:#58a6ff;border-bottom-color:#58a6ff}}
+.tbdg{{background:#21262d;border-radius:9px;padding:1px 6px;margin-left:4px;font-size:10px;color:#8b949e}}
+.panel{{display:none}}.panel.active{{display:block}}
+.srch-bar{{padding:12px 28px 8px}}
+.srch-bar input{{background:#21262d;border:1px solid #30363d;color:#c9d1d9;padding:6px 12px;border-radius:6px;width:380px;font-family:inherit;font-size:12px;outline:none}}
+.srch-bar input:focus{{border-color:#58a6ff;background:#161b22}}
+.cnt-info{{color:#8b949e;font-size:11px;padding:0 28px 6px}}
+.tbl-wrap{{padding:0 28px 32px;overflow-x:auto}}
+table{{width:100%;border-collapse:collapse;font-size:12px}}
+thead{{position:sticky;top:0;z-index:1}}
+th{{text-align:left;padding:8px 10px;color:#8b949e;border-bottom:1px solid #30363d;font-weight:normal;background:#0d1117;cursor:pointer;user-select:none;white-space:nowrap}}
+th:hover{{color:#c9d1d9}}
+th::after{{content:" ↕";opacity:.25;font-size:9px}}
+th.asc::after{{content:" ↑";opacity:1}}th.desc::after{{content:" ↓";opacity:1}}
+td{{padding:5px 10px;border-bottom:1px solid #161b22;vertical-align:top}}
+tr:hover td{{background:#161b22}}
+tr.hide{{display:none}}
+.tm{{color:#8b949e;white-space:nowrap;font-size:11px}}
+.mono{{font-family:'Consolas','Courier New',monospace}}
+.trunc{{max-width:440px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer}}
+.trunc:hover{{opacity:.8}}
+.trunc.exp{{white-space:normal;word-break:break-all;max-width:none}}
+.bdg{{display:inline-block;padding:1px 7px;border-radius:4px;font-size:11px;font-weight:bold;background:#21262d;letter-spacing:.2px}}
+.c-grn{{color:#3fb950}}.c-yel{{color:#d29922}}.c-red{{color:#f85149}}
+.c-cyn{{color:#79c0ff}}.c-dim{{color:#8b949e}}
+.no-ev{{color:#8b949e;padding:50px 28px;text-align:center;font-size:13px}}
+::-webkit-scrollbar{{width:6px;height:6px}}
+::-webkit-scrollbar-track{{background:#0d1117}}
+::-webkit-scrollbar-thumb{{background:#30363d;border-radius:3px}}
+</style>
+</head>
+<body>
+
+<div class="hdr">
+  <h1>&#9670; Scout Report &mdash; {esc(self.app_name)}</h1>
+  <div class="meta">
+    Session: <b>{esc(self.session_id)}</b> &nbsp;&bull;&nbsp;
+    Target: <b>{esc(self.target_process or "all processes")}</b> &nbsp;&bull;&nbsp;
+    Délka: <b>{sm["duration_s"]} s</b> &nbsp;&bull;&nbsp;
+    Spuštěno: <b>{start_dt}</b>
+  </div>
+  <div class="paths">Sledované cesty: {watch_str}</div>
+</div>
+
+<div class="cards">
+{cards_html}
+</div>
+
+<div class="tabs">
+{tabs_html}
+</div>
+
+{panels_html}
+
+<script>
+(function(){{
+  function switchTab(id){{
+    document.querySelectorAll('.tab').forEach(function(t){{t.classList.remove('active');}});
+    document.querySelectorAll('.panel').forEach(function(p){{p.classList.remove('active');}});
+    var tab=document.getElementById('tab-'+id);
+    var panel=document.getElementById('panel-'+id);
+    if(tab) tab.classList.add('active');
+    if(panel) panel.classList.add('active');
+  }}
+  window.switchTab=switchTab;
+
+  window.filterTbl=function(inp,tblId,ciId){{
+    var q=inp.value.toLowerCase();
+    var rows=document.querySelectorAll('#'+tblId+' tbody tr');
+    var vis=0;
+    rows.forEach(function(r){{
+      var show=!q||r.textContent.toLowerCase().includes(q);
+      r.classList.toggle('hide',!show);
+      if(show) vis++;
+    }});
+    var ci=document.getElementById(ciId);
+    if(ci){{
+      var total=rows.length;
+      ci.textContent=(vis<total?(vis+' / '+total):total)+' událostí';
+    }}
+  }};
+
+  window.sortTbl=function(th){{
+    var tbl=th.closest('table');
+    var tbody=tbl.querySelector('tbody');
+    var col=Array.from(th.parentNode.children).indexOf(th);
+    var asc=th.classList.contains('asc');
+    tbl.querySelectorAll('th').forEach(function(h){{h.classList.remove('asc','desc');}});
+    th.classList.add(asc?'desc':'asc');
+    var rows=Array.from(tbody.querySelectorAll('tr'));
+    rows.sort(function(a,b){{
+      var av=a.cells[col]?a.cells[col].textContent.trim():'';
+      var bv=b.cells[col]?b.cells[col].textContent.trim():'';
+      return(asc?-1:1)*av.localeCompare(bv,undefined,{{numeric:true,sensitivity:'base'}});
+    }});
+    rows.forEach(function(r){{tbody.appendChild(r);}});
+  }};
+
+  document.querySelectorAll('.trunc').forEach(function(el){{
+    el.title='Kliknutím rozbalíte';
+    el.addEventListener('click',function(){{el.classList.toggle('exp');}});
+  }});
+}})();
+</script>
+</body>
+</html>"""
+
+        with open(filepath, "w", encoding="utf-8") as f:
+            f.write(doc)
+        return filepath
+
     def export_json(self, filepath: str | None = None) -> str:
         """Export the session to a JSON file and return the path."""
         if filepath is None:

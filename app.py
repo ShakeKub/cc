@@ -2226,7 +2226,7 @@ def menu_scout(logger: CleanerLogger):
         print(f"  {C}[3]{RST} List saved sessions")
         print(f"  {C}[4]{RST} View session report  {DIM}(added / modified / deleted / unchanged){RST}")
         print(f"  {C}[5]{RST} Delete a session")
-        print(f"  {C}[8]{RST} Export session to file  {DIM}(TXT or JSON){RST}")
+        print(f"  {C}[8]{RST} Export session to file  {DIM}(HTML nebo JSON){RST}")
         sep("-")
         print(f"  {C}[6]{RST} Pre-launch scan      {DIM}(inspect existing app traces before running){RST}")
         print(f"  {C}[7]{RST} Protected run         {DIM}(snapshot + net block + diff on exit){RST}")
@@ -2494,22 +2494,22 @@ def menu_scout(logger: CleanerLogger):
                 pause()
                 continue
 
-            fmt = prompt("Format — [1] TXT  [2] JSON: ").strip()
+            fmt = prompt("Format — [1] HTML  [2] JSON: ").strip()
             if fmt not in ("1", "2"):
                 err("Invalid choice.")
                 pause()
                 continue
 
-            default_out = str(profile_path / f"scout_export_{sid}.{'txt' if fmt == '1' else 'json'}")
-            out_path = prompt(f"Save to [{default_out}]: ").strip() or default_out
+            ext = "html" if fmt == "1" else "json"
+            default_out = str(profile_path / f"scout_export_{sid}.{ext}")
+            out_path = prompt(f"Uložit do [{default_out}]: ").strip() or default_out
 
             try:
-                # Reconstruct a ScoutSession object just for export (no monitoring)
                 tmp = ScoutSession(session.get("app_name", ""), str(profile_path), logger)
-                tmp.session_id      = sid
-                tmp.watch_paths     = session.get("watch_paths", [session.get("watch_path", "")])
-                tmp.target_process  = session.get("target_process")
-                tmp.start_time      = session.get("start_time")
+                tmp.session_id         = sid
+                tmp.watch_paths        = session.get("watch_paths", [session.get("watch_path", "")])
+                tmp.target_process     = session.get("target_process")
+                tmp.start_time         = session.get("start_time")
                 tmp.file_access_events = session.get("file_access_events", [])
                 tmp.file_events        = session.get("file_events", [])
                 tmp.registry_events    = session.get("registry_events", [])
@@ -2518,11 +2518,8 @@ def menu_scout(logger: CleanerLogger):
                 tmp.download_events    = session.get("download_events", [])
                 tmp.dll_events         = session.get("dll_events", [])
 
-                if fmt == "1":
-                    saved = tmp.export_txt(out_path)
-                else:
-                    saved = tmp.export_json(out_path)
-                ok(f"Exported → {saved}")
+                saved = tmp.export_html(out_path) if fmt == "1" else tmp.export_json(out_path)
+                ok(f"Exportováno → {saved}")
             except Exception as e:
                 err(str(e))
             pause()
