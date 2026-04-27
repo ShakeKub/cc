@@ -2316,6 +2316,7 @@ def menu_logs(logger: CleanerLogger):
 
 def menu_scout(logger: CleanerLogger):
     """Scout Mode — deep real-time monitoring of a specific application."""
+    import psutil
     from core.scout import ScoutSession
     profile_path = Path(__file__).parent / "profiles"
     profile_path.mkdir(exist_ok=True)
