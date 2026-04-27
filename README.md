@@ -17,7 +17,7 @@ python main.py
 
 ## Menu
 
-The main menu is organized into five categories.
+The main menu is organized into six categories.
 
 ### Cleaning
 | # | Feature | Description |
@@ -39,7 +39,27 @@ The main menu is organized into five categories.
 | 35 | Font Manager | List all installed fonts, view file sizes, delete unused ones |
 | 36 | Shortcut Fixer | Scan Desktop and Start Menu for broken .lnk files, delete them |
 | 37 | MSI Cache Cleaner | Find orphaned installer files in `C:\Windows\Installer` and reclaim disk space |
-| 47 | File Encryption | AES-256-GCM encrypt/decrypt files and folders; scrypt key derivation; `.scenc` extension |
+
+### Security
+| # | Feature | Description |
+|---|---------|-------------|
+| 47 | File Encryption | Multi-algorithm `.scenc` encryption/decryption, folder mode, algorithm switcher, and auto-detect on decrypt |
+| 50 | Hash Cracker | Crack MD5/SHA1/SHA256/SHA512/bcrypt with auto-detection, wordlists, and brute-force modes |
+| 51 | Password Generator | Generate strong passwords, pronounceable variants, and live entropy/strength scoring |
+| 52 | File Integrity Monitor | Create baseline hashes and detect added/modified/deleted files with diff output |
+| 53 | Network Scanner | Port scans, banner grabbing, ping sweep, traceroute, reverse DNS, and WHOIS |
+| 54 | Memory Inspector | Process inspection (env/cmdline/files/connections), secret hints, and memory string scan |
+| 55 | Steganography | Hide/extract payloads in images (PNG/BMP) with optional password protection |
+| 56 | Metadata Stripper | Read/remove metadata from images, DOCX, and PDF files |
+| 57 | Breach Checker (HIBP) | k-anonymity password leak check and e-mail breach check (with API key) |
+| 58 | SSL/TLS Inspector | Certificate validity, expiry warnings, protocol/cipher checks, and weak protocol detection |
+| 59 | 2FA / TOTP Generator | Encrypted TOTP vault with live rotating codes and secret generation |
+| 60 | File Analyzer | Magic-byte detection, entropy scoring, extension mismatch checks, and strings extraction |
+| 61 | Log Analyzer | System/auth log anomaly scan with event counters and top suspicious IPs |
+| 62 | Password Manager | Encrypted local vault for credentials with search, edit, and plaintext export |
+| 63 | Encrypted Backup | Password-protected backup creation/restore with verification and manifest tracking |
+| 64 | Startup / Persistence Auditor | Cross-platform startup/persistence scan with risk flags and export |
+| 69 | Webcam / Mic Auditor | Camera and microphone access audit (platform-specific sources) |
 
 ### Tools
 | # | Feature | Description |
@@ -62,18 +82,24 @@ The main menu is organized into five categories.
 | 45 | Tweaks Center | Essential + advanced Windows tweaks, preference toggles, and performance-plan actions (with cautions for high-impact operations) |
 | 46 | Package Manager | Install, uninstall, upgrade packages via winget and Chocolatey; show upgradable list |
 | 49 | App Manager | List running user apps with CPU/RAM/connections; kill or block/unblock internet per process |
+| 71 | JSON / YAML / XML Formatter | Auto-detect and format JSON/XML/YAML from files or pasted input |
 
 ### Monitoring
 | # | Feature | Description |
 |---|---------|-------------|
 | 22 | App Tracer | Real-time file/process/network tracing; **Pre-launch scan** (static trace before launch); **Protected Run** (snapshot + optional net block + added/modified/deleted diff on exit) |
-| 23 | Scout Mode | Deep monitoring — file I/O, registry changes, downloads, network, spawned processes; file diff breakdown (added/modified/deleted/unchanged); **Pre-launch scan**; **Protected/Sandboxed Run** with live feed + diff |
+| 23 | Scout Mode | Deep monitoring — file/registry/network/process/DLL/DNS/pipe events, risk score + verdict, persistence diff, auto HTML report, optional VirusTotal checks, **Pre-launch scan**, and **Protected Run** with live feed + diff |
 | 24 | System Health | Composite health score (0–100, A–F) across CPU, RAM, disk, startup load, and uptime |
 | 25 | Crash Logs | Read critical/error events from Windows Event Log, BSOD history, and minidump files |
 | 26 | Disk Health | Physical disk info, SMART counters (temperature, wear, errors), partition usage bars |
 | 38 | System Info | Full hardware snapshot — CPU, RAM sticks, GPU, disks, network adapters — with file export |
 | 39 | Network Speed Test | Ping latency (3 servers), DNS resolution timing, 10 MB download speed test |
 | 48 | Driver Manager | List PnP drivers (WMI), highlight unsigned drivers, list kernel drivers (driverquery), open Device Manager |
+| 65 | System Dashboard | Live CPU/RAM/disk/network dashboard with per-core and throughput view |
+| 66 | Port Monitor | List all active/listening ports and optional live LISTEN refresh mode |
+| 67 | Temperature Monitor | Sensor temperature view with live mode (where supported) |
+| 68 | Battery Info | Battery percentage, charging state, and estimated time remaining |
+| 70 | Disk Analyzer | Top folders/files/extensions by size with percentage bars |
 
 ### System
 | # | Feature | Description |
@@ -94,7 +120,7 @@ The main menu is organized into five categories.
 
 ### Blocking an app's internet access
 
-1. From the main menu press **`3`** (Tools) → **`49`** App Manager.
+1. From the main menu press **`4`** (Tools) → **`49`** App Manager.
 2. The list shows all running user apps with CPU%, RAM, and active connection count. Apps already blocked are marked `[B]` in red.
 3. To block an app's outbound internet, type **`b <number>`** — e.g. `b 3` blocks the third app in the list.  
    This adds a Windows Firewall outbound block rule named `SC_BLOCK_<exe>`. Admin rights required.
@@ -112,7 +138,7 @@ Tweaks Center is a controlled workflow for Windows tweaks with preview, compatib
 
 ### Recommended flow
 
-1. From the main menu press **`3`** (Tools) → **`45`** Tweaks Center.
+1. From the main menu press **`4`** (Tools) → **`45`** Tweaks Center.
 2. Choose a category:
    - **`1`** Essential Tweaks
    - **`2`** Advanced Tweaks
@@ -186,6 +212,8 @@ Step-by-step:
 
 In Scout Mode (`[7]`) a full live Scout session also runs alongside the snapshot, so all raw events are saved to `profiles/` for later review.
 
+Scout Mode also supports a local VirusTotal API key (`[v]` in Scout menu). If configured, file hashes from the session can be checked automatically after stop and the HTML report is refreshed with VT verdict badges.
+
 ---
 
 ## Multi-select
@@ -205,52 +233,76 @@ cc/
 │   ├── en.json           # English strings
 │   └── cs.json           # Czech strings
 ├── core/
-│   ├── i18n.py           # Translation layer (t(), set_language(), available_languages())
-│   ├── logger.py         # Session logger with TXT/JSON export
-│   ├── cleaner.py        # System cleaning (temp, WU cache, DNS, prefetch, recycle bin)
+│   ├── __init__.py
+│   ├── adblocker.py      # Hosts-based ad and tracker blocker
+│   ├── appmgr.py         # Running app list + per-process firewall block/unblock
+│   ├── archivecrack.py   # ZIP/7z/RAR password cracking helpers
+│   ├── autoruns.py       # Comprehensive autorun entry manager
+│   ├── backup.py         # Encrypted backup create/restore/list/delete
 │   ├── browser.py        # Browser cleaning (Chrome, Edge, Firefox)
-│   ├── process.py        # Process listing, kill, suspicious detection
-│   ├── network.py        # Network connections, DNS, ping, diagnostics
-│   ├── startup.py        # Startup entry manager
+│   ├── camaudit.py       # Webcam/microphone access audit
+│   ├── cleaner.py        # System cleaning (temp, WU cache, DNS, prefetch, recycle bin)
+│   ├── codeformatter.py  # JSON/YAML/XML formatting + validation
+│   ├── contextmenu.py    # Context menu entry manager
+│   ├── crashlog.py       # Windows Event Log and minidump reader
 │   ├── disk.py           # Disk usage analysis
-│   ├── registry.py       # Registry scan, backup, restore
+│   ├── diskanalyzer.py   # Folder/file/extension size analysis
+│   ├── diskhealth.py     # Physical disk SMART data reader
+│   ├── dnstools.py       # DNS flush and hosts file editor
+│   ├── drivermgr.py      # Driver Manager (WMI PnP + driverquery)
+│   ├── duplicates.py     # Duplicate file finder (SHA-1, two-pass)
+│   ├── emptyfolders.py   # Empty folder finder and cleaner
+│   ├── envvars.py        # Environment variables editor
+│   ├── factory.py        # Factory setup wizard logic
+│   ├── fileanalyzer.py   # Magic/entropy/strings/headers analysis
+│   ├── fileencrypt.py    # Multi-algorithm file/folder encryption
+│   ├── firewall.py       # Windows Firewall rule manager
+│   ├── fontmgr.py        # Font manager
+│   ├── hashcrack.py      # Hash cracking engine
+│   ├── health.py         # System health scoring
+│   ├── hibp.py           # HaveIBeenPwned client helpers
+│   ├── history.py        # Network, USB, and app launch history
+│   ├── i18n.py           # Translation layer (t(), set_language(), available_languages())
+│   ├── integrity.py      # Baseline hash and integrity diff tool
+│   ├── largefile.py      # Large file finder
+│   ├── loganalyzer.py    # System/auth log anomaly analyzer
+│   ├── logger.py         # Session logger with TXT/JSON export
+│   ├── memscanner.py     # Process/memory inspection helpers
+│   ├── metastrip.py      # Metadata read/remove for image/doc/pdf
+│   ├── msicache.py       # MSI installer cache orphan finder
+│   ├── netscanner.py     # Port scan, ping sweep, traceroute, whois
+│   ├── netspeed.py       # Network speed test (ping, DNS, download)
+│   ├── network.py        # Network connections, DNS, ping, diagnostics
 │   ├── optimizer.py      # RAM optimization, services, power plans
+│   ├── passgen.py        # Password generation + entropy scoring
+│   ├── pdfcrack.py       # PDF password cracking helpers
+│   ├── perfboost.py      # One-click performance optimization
+│   ├── pkgmgr.py         # Package Manager (winget + Chocolatey)
 │   ├── privacy.py        # Telemetry toggles, tracking file removal
-│   ├── uninstaller.py    # Program and built-in app uninstaller
+│   ├── process.py        # Process listing, kill, suspicious detection
+│   ├── pwdmgr.py         # Encrypted local password manager
+│   ├── recovery.py       # Recycle Bin and VSS shadow copy recovery
+│   ├── registry.py       # Registry scan, backup, restore
+│   ├── restore.py        # System Restore point manager
+│   ├── sandbox.py        # Filesystem+registry snapshot, diff, protected app launch
 │   ├── scheduler.py      # Task scheduler integration
+│   ├── scout.py          # Scout Mode — deep real-time monitoring + report export
+│   ├── securewipe.py     # Multi-pass secure file wipe
+│   ├── shortcutfix.py    # Broken shortcut scanner and fixer
+│   ├── sslcheck.py       # SSL/TLS certificate inspector
+│   ├── startup.py        # Startup entry manager
+│   ├── startupaudit.py   # Startup/persistence risk auditor
+│   ├── stego.py          # LSB steganography helper
+│   ├── sysinfo.py        # Full system info snapshot and export
+│   ├── sysmonitor.py     # Live system dashboard metrics
+│   ├── totp.py           # TOTP generation + encrypted vault
 │   ├── tracer.py         # Static app trace scanner
 │   ├── tracer_session.py # Live app tracing (watchdog-based)
-│   ├── scout.py          # Scout Mode — deep real-time monitoring
-│   ├── health.py         # System health scoring
-│   ├── history.py        # Network, USB, and app launch history
-│   ├── restore.py        # System Restore point manager
-│   ├── crashlog.py       # Windows Event Log and minidump reader
-│   ├── autoruns.py       # Comprehensive autorun entry manager
-│   ├── contextmenu.py    # Context menu entry manager
-│   ├── duplicates.py     # Duplicate file finder (SHA-1, two-pass)
-│   ├── largefile.py      # Large file finder
-│   ├── emptyfolders.py   # Empty folder finder and cleaner
-│   ├── securewipe.py     # Multi-pass secure file wipe
-│   ├── recovery.py       # Recycle Bin and VSS shadow copy recovery
-│   ├── diskhealth.py     # Physical disk SMART data reader
-│   ├── perfboost.py      # One-click performance optimization
-│   ├── dnstools.py       # DNS flush and hosts file editor
-│   ├── winupdate.py      # Windows Update manager
-│   ├── envvars.py        # Environment variables editor
-│   ├── fontmgr.py        # Font manager
-│   ├── shortcutfix.py    # Broken shortcut scanner and fixer
-│   ├── msicache.py       # MSI installer cache orphan finder
-│   ├── firewall.py       # Windows Firewall rule manager
-│   ├── sysinfo.py        # Full system info snapshot and export
-│   ├── wol.py            # Wake-on-LAN magic packet sender
-│   ├── adblocker.py      # Hosts-based ad and tracker blocker
-│   ├── netspeed.py       # Network speed test (ping, DNS, download)
-│   ├── appmgr.py         # Running app list + per-process firewall block/unblock
-│   ├── sandbox.py        # Filesystem+registry snapshot, diff, protected app launch
-│   ├── pkgmgr.py         # Package Manager (winget + Chocolatey)
 │   ├── tweaks.py         # Tweaks Center (essential, advanced, preferences, performance)
-│   ├── fileencrypt.py    # AES-256-GCM file/folder encryption
-│   └── drivermgr.py      # Driver Manager (WMI PnP + driverquery)
+│   ├── uninstaller.py    # Program and built-in app uninstaller
+│   ├── winupdate.py      # Windows Update manager
+│   ├── wol.py            # Wake-on-LAN magic packet sender
+│   └── wordlist.txt      # Bundled password wordlist for cracking features
 ├── profiles/             # Saved tracer and scout session files (JSON)
 └── logs/                 # Exported session logs
 ```
@@ -264,11 +316,15 @@ cc/
 - **Manifest installs** are supported in Package Manager (`.json`): create templates, install custom manifests, or run built-in bundles.
 - **Smart Startup/Services optimizer** provides impact-based recommendations first, then applies selected profiles with reversible actions.
 - **Audit trail** is persistent across sessions (`logs/audit_trail.jsonl`) and exportable via Logs & Reports as TXT/JSON.
+- **Security category** adds hash cracking, password generation, integrity baselines, deep network scan, memory inspector, steganography, metadata stripping, HIBP checks, SSL/TLS inspection, TOTP vault, file/log analyzers, encrypted backup, startup/persistence audit, and webcam/mic audit.
+- **File Encryption** now supports multiple algorithms, auto-detect decrypt, and optional cracking workflows for `.scenc`, archives, and encrypted PDFs.
 - **Protected Run** (App Tracer / Scout Mode) takes a filesystem+registry snapshot before the app launches and diffs it after — showing exactly which files were added, modified, or deleted. Optionally blocks the app's network during the run.
 - **Pre-launch Scan** runs the static AppTracer against an app name before you start it — showing existing files, registry keys, services, and scheduled tasks it already has on disk.
 - **Ad Blocker** writes entries to `C:\Windows\System32\drivers\etc\hosts` between clearly marked section markers — disabling removes only those lines.
 - **Secure Wipe** overwrites file content before deletion. It cannot recover files deleted through normal means.
-- **Scout Mode** uses `watchdog` for filesystem monitoring and `psutil` for process/network polling. It saves sessions to `profiles/scout_*.json`.
+- **Scout Mode** uses `watchdog` for filesystem monitoring and `psutil` for process/network polling, now tracks persistence events, computes verdict/risk, auto-exports HTML, and can enrich reports with VirusTotal results.
+- **Monitoring additions** include live system dashboard, port monitor, temperature monitor, battery info, and disk analyzer.
+- **Optional dependencies** for advanced features: `Pillow` (steganography/image metadata), `pypdf` (PDF cracking/metadata), `py7zr`/`rarfile` or 7-Zip/UnRAR binaries (archive cracking), and `bcrypt` (bcrypt hash checks).
 - **Wake-on-LAN** devices are saved to `wol_devices.json` in the project directory.
 - **Language** defaults to English. Switch to Czech via option 31; the setting persists in `config.json`.
 
