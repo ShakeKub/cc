@@ -34,6 +34,7 @@ W  = "\033[37m"   # white
 DIM = "\033[2m"
 B  = "\033[1m"    # bold
 RST = "\033[0m"   # reset
+_MENU_WATERMARK = " ShakeKub"
 
 
 def clr():
@@ -44,8 +45,7 @@ def sep(char="─", n=60):
     print(DIM + char * n + RST)
 
 
-def header(title=""):
-    clr()
+def _print_brand():
     print(f"{G}{B}")
     print("  ███████╗██╗   ██╗███████╗     ██████╗██╗     ███████╗ █████╗ ███╗   ██╗")
     print("  ██╔════╝╚██╗ ██╔╝██╔════╝    ██╔════╝██║     ██╔════╝██╔══██╗████╗  ██║")
@@ -54,6 +54,12 @@ def header(title=""):
     print("  ███████║   ██║   ███████║    ╚██████╗███████╗███████╗██║  ██║██║ ╚████║")
     print("  ╚══════╝   ╚═╝   ╚══════╝     ╚═════╝╚══════╝╚══════╝╚═╝  ╚═╝╚═╝  ╚═══╝")
     print(f"{RST}")
+    print(f"  {DIM}{_MENU_WATERMARK}{RST}")
+
+
+def header(title=""):
+    clr()
+    _print_brand()
     sep()
     if title:
         print(f"  {C}{B}{title}{RST}")
@@ -274,14 +280,7 @@ def _menu_category_view(cat_label: str, items: list, logger: CleanerLogger):
     """Show all items inside a category and dispatch the user's choice."""
     while True:
         clr()
-        print(f"{G}{B}")
-        print("  ███████╗██╗   ██╗███████╗     ██████╗██╗     ███████╗ █████╗ ███╗   ██╗")
-        print("  ██╔════╝╚██╗ ██╔╝██╔════╝    ██╔════╝██║     ██╔════╝██╔══██╗████╗  ██║")
-        print("  ███████╗ ╚████╔╝ ███████╗    ██║     ██║     █████╗  ███████║██╔██╗ ██║")
-        print("  ╚════██║  ╚██╔╝  ╚════██║    ██║     ██║     ██╔══╝  ██╔══██║██║╚██╗██║")
-        print("  ███████║   ██║   ███████║    ╚██████╗███████╗███████╗██║  ██║██║ ╚████║")
-        print("  ╚══════╝   ╚═╝   ╚══════╝     ╚═════╝╚══════╝╚══════╝╚═╝  ╚═╝╚═╝  ╚═══╝")
-        print(f"{RST}")
+        _print_brand()
         sep()
         print(f"  {C}{B}{cat_label}{RST}")
         sep()
