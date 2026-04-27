@@ -185,7 +185,25 @@ def _menu_categories():
             ("36", t("menu.shortcut_fixer")),
             ("37", t("menu.msi_cache")),
             ("35", t("menu.font_mgr")),
+        ]),
+        (t("cat.security"), [
             ("47", t("menu.file_encrypt")),
+            ("50", t("menu.hash_crack")),
+            ("51", t("menu.pass_gen")),
+            ("52", t("menu.integrity")),
+            ("53", t("menu.net_scan")),
+            ("54", t("menu.mem_scan")),
+            ("55", t("menu.stego")),
+            ("56", t("menu.metastrip")),
+            ("57", t("menu.hibp")),
+            ("58", t("menu.sslcheck")),
+            ("59", t("menu.totp")),
+            ("60", t("menu.fileanalyze")),
+            ("61", t("menu.loganalyze")),
+            ("62", t("menu.pwdmgr")),
+            ("63", t("menu.backup")),
+            ("64", t("menu.startupaudit")),
+            ("69", t("menu.cam_audit")),
         ]),
         (t("cat.tools"), [
             ("11", t("menu.browser_tools")),
@@ -207,6 +225,7 @@ def _menu_categories():
             ("45", t("menu.tweaks")),
             ("46", t("menu.pkg_mgr")),
             ("49", t("menu.app_mgr")),
+            ("71", t("menu.code_fmt")),
         ]),
         (t("cat.monitoring"), [
             ("22", t("menu.app_tracer")),
@@ -217,6 +236,11 @@ def _menu_categories():
             ("38", t("menu.sys_info")),
             ("39", t("menu.net_speed")),
             ("48", t("menu.driver_mgr")),
+            ("65", t("menu.sys_dashboard")),
+            ("66", t("menu.port_monitor")),
+            ("67", t("menu.temp_monitor")),
+            ("68", t("menu.battery_info")),
+            ("70", t("menu.disk_analyzer")),
         ]),
         (t("cat.system"), [
             ("27", t("menu.history_mgr")),
@@ -233,7 +257,7 @@ def _menu_categories():
 
 
 # Category icons for the home screen
-_CAT_ICONS = ["⚙", "📁", "🔧", "📊", "🖥"]
+_CAT_ICONS = ["⚙", "📁", "🔧", "📊", "🖥", "🔒"]
 
 
 def _print_home_categories(categories):
@@ -357,6 +381,28 @@ _DISPATCH = {
     "47": lambda l: menu_fileencrypt(l),
     "48": lambda l: menu_drivermgr(l),
     "49": lambda l: menu_appmgr(l),
+    "50": lambda l: menu_hashcrack(l),
+    "51": lambda l: menu_passgen(l),
+    "52": lambda l: menu_integrity(l),
+    "53": lambda l: menu_netscanner(l),
+    "54": lambda l: menu_memscanner(l),
+    "55": lambda l: menu_stego(l),
+    "56": lambda l: menu_metastrip(l),
+    "57": lambda l: menu_hibp(l),
+    "58": lambda l: menu_sslcheck(l),
+    "59": lambda l: menu_totp(l),
+    "60": lambda l: menu_fileanalyze(l),
+    "61": lambda l: menu_loganalyze(l),
+    "62": lambda l: menu_pwdmgr(l),
+    "63": lambda l: menu_backup(l),
+    "64": lambda l: menu_startupaudit(l),
+    "65": lambda l: menu_sys_dashboard(l),
+    "66": lambda l: menu_port_monitor(l),
+    "67": lambda l: menu_temp_monitor(l),
+    "68": lambda l: menu_battery_info(l),
+    "69": lambda l: menu_cam_audit(l),
+    "70": lambda l: menu_disk_analyzer(l),
+    "71": lambda l: menu_code_fmt(l),
 }
 
 
@@ -2392,6 +2438,9 @@ def menu_scout(logger: CleanerLogger):
         sep("-")
         print(f"  {C}[8]{RST} Pre-launch scan      {DIM}(static analýza stop před spuštěním){RST}")
         print(f"  {C}[9]{RST} Protected run         {DIM}(snapshot + net block + diff na výstupu){RST}")
+        _vt_key_file = profile_path / "vt_key.txt"
+        _vt_key_set  = _vt_key_file.exists()
+        print(f"  {C}[v]{RST} VirusTotal API klíč   {DIM}({'nastaven ✓' if _vt_key_set else 'nenastaveno'}){RST}")
         print(f"  {C}[0]{RST} Back")
         sep()
         c = prompt()
@@ -2536,7 +2585,7 @@ def menu_scout(logger: CleanerLogger):
 
             current.stop()
             sep("═")
-            s = current.get_summary()
+            s    = current.get_summary()
             risk = current.get_risk_score()
             risk_col = R if risk >= 50 else (Y if risk >= 20 else G)
             ok(f"Session uložena  "
@@ -2548,8 +2597,32 @@ def menu_scout(logger: CleanerLogger):
                f"proc:{G}{s['process_events']}{RST}  "
                f"dll:{C}{s['dll_events']}{RST}  "
                f"dns:{C}{s.get('dns_events',0)}{RST}  "
+               f"persist:{Y}{s.get('persistence_events',0)}{RST}  "
                f"risks:{risk_col}{s.get('risk_flags',0)}{RST}")
-            print(f"  {DIM}Exportovat? Použijte možnost [6]{RST}")
+            verdict = s.get("verdict","")
+            if verdict:
+                print(f"  {B}Verdict:{RST} {verdict}")
+            if current.last_html_export:
+                print(f"  {G}HTML report:{RST} {current.last_html_export}")
+            # Auto VT check if key is configured
+            _vt_key_file = profile_path / "vt_key.txt"
+            if _vt_key_file.exists() and current.file_hashes:
+                info("VirusTotal check spuštěn na pozadí…")
+                import threading as _thr2
+                _ses_ref = current
+                def _vt_bg():
+                    key = _vt_key_file.read_text().strip()
+                    _ses_ref.check_virustotal(key)
+                    mal = sum(1 for r in _ses_ref.vt_results.values() if r.get("malicious",0)>0)
+                    print(f"\n  {R if mal else G}[VT] {len(_ses_ref.vt_results)} hashů zkontrolováno"
+                          + (f", {mal} MALICIOUS{RST}" if mal else f", vše čisté{RST}"))
+                    # Re-export HTML with VT data
+                    try:
+                        path2 = _ses_ref.export_html()
+                        print(f"  {G}[VT] HTML aktualizován:{RST} {path2}")
+                    except Exception:
+                        pass
+                _thr2.Thread(target=_vt_bg, daemon=True).start()
             current = None
             pause()
 
@@ -2926,6 +2999,31 @@ def menu_scout(logger: CleanerLogger):
                    f"procs:{G}{ss['process_events']}{RST}")
             except Exception as e:
                 err(str(e))
+            pause()
+
+        # ── [v] VirusTotal API key ────────────────────────────
+        elif c == "v":
+            _vt_key_file = profile_path / "vt_key.txt"
+            sep()
+            if _vt_key_file.exists():
+                existing = _vt_key_file.read_text().strip()
+                print(f"  Aktuální klíč: {DIM}{existing[:8]}…{existing[-4:]}{RST}")
+                print(f"  [1] Změnit  [2] Smazat  [0] Zpět")
+                ch = prompt().strip()
+                if ch == "2":
+                    _vt_key_file.unlink()
+                    ok("VT klíč smazán.")
+                elif ch == "1":
+                    new_key = prompt("Nový VT API klíč: ").strip()
+                    if new_key:
+                        _vt_key_file.write_text(new_key)
+                        ok("VT klíč uložen.")
+            else:
+                print(f"  {DIM}Získej klíč zdarma na virustotal.com → API → Get Free API Key{RST}")
+                new_key = prompt("VT API klíč (Enter = přeskočit): ").strip()
+                if new_key:
+                    _vt_key_file.write_text(new_key)
+                    ok("VT klíč uložen. Bude automaticky použit po každé session.")
             pause()
 
 
@@ -5951,6 +6049,8 @@ def _pick_backend(wg: bool, ch: bool) -> str | None:
 
 def menu_fileencrypt(logger: CleanerLogger):
     from core import fileencrypt as _enc
+    from core import archivecrack as _arc
+    from core import pdfcrack as _pdf
 
     if not _enc.crypto_available():
         header(t("menu.file_encrypt"))
@@ -5959,14 +6059,36 @@ def menu_fileencrypt(logger: CleanerLogger):
         pause()
         return
 
+    _algo = _enc.DEFAULT_ALGO   # currently selected algorithm
+
+    def _pick_algo() -> str:
+        """Show algorithm picker and return chosen name."""
+        avail = _enc.available_algos()
+        sep()
+        print(f"  Dostupné algoritmy:")
+        for i, name in enumerate(avail, 1):
+            marker = f" {G}◀ aktuální{RST}" if name == _algo else ""
+            print(f"  {C}[{i}]{RST} {name}{marker}")
+        ch = prompt("Algoritmus (Enter = ponechat): ").strip()
+        if ch.isdigit() and 1 <= int(ch) <= len(avail):
+            return avail[int(ch) - 1]
+        return _algo
+
     while True:
         header(t("menu.file_encrypt"))
-        print(f"  {DIM}AES-256-GCM · scrypt key derivation · .scenc extension{RST}")
+        avail_algos = _enc.available_algos()
+        print(f"  {DIM}Algoritmus: {B}{_algo}{RST}  {DIM}· scrypt KDF · .scenc extension{RST}")
         sep()
-        print(f"  {C}[1]{RST} Encrypt a file")
-        print(f"  {C}[2]{RST} Decrypt a file  {DIM}(.scenc){RST}")
-        print(f"  {C}[3]{RST} Encrypt a folder  {DIM}(all files recursively){RST}")
-        print(f"  {C}[4]{RST} Decrypt a folder  {DIM}(all .scenc files){RST}")
+        print(f"  {C}[1]{RST} Zašifrovat soubor")
+        print(f"  {C}[2]{RST} Dešifrovat soubor     {DIM}(.scenc — auto-detekce algoritmu){RST}")
+        print(f"  {C}[3]{RST} Zašifrovat složku     {DIM}(všechny soubory rekurzivně){RST}")
+        print(f"  {C}[4]{RST} Dešifrovat složku     {DIM}(všechny .scenc soubory){RST}")
+        sep("-")
+        print(f"  {C}[5]{RST} Auto-crack souboru    {DIM}(časté hesla + wordlist + brute-force){RST}")
+        print(f"  {C}[6]{RST} Změnit algoritmus     {DIM}(aktuálně: {_algo}){RST}")
+        sep("-")
+        print(f"  {C}[7]{RST} Crack archivu         {DIM}(7-Zip · WinRAR · ZIP — heslo){RST}")
+        print(f"  {C}[8]{RST} Crack PDF             {DIM}(zaheslovaný PDF soubor){RST}")
         print(f"  {C}[0]{RST} {t('menu.back')}")
         sep()
         c = prompt()
@@ -5975,76 +6097,383 @@ def menu_fileencrypt(logger: CleanerLogger):
             break
 
         elif c == "1":
-            path = prompt("File path: ").strip().strip('"')
+            path = prompt("Cesta k souboru: ").strip().strip('"')
             if not path:
                 continue
             p = Path(path)
             if not p.is_file():
-                err("File not found."); pause(); continue
+                err("Soubor nenalezen."); pause(); continue
             pw = _ask_password()
             if not pw:
                 continue
-            info("Encrypting…")
-            r = _enc.encrypt_file(p, pw, logger)
+            info(f"Šifruji pomocí {_algo}…")
+            r = _enc.encrypt_file(p, pw, logger, algo=_algo)
             if r["ok"]:
-                ok(f"Encrypted: {r['dst']}")
+                ok(f"Zašifrováno [{r['algo']}]: {r['dst']}")
             else:
-                err(f"Failed: {r['error']}")
+                err(f"Chyba: {r['error']}")
             pause()
 
         elif c == "2":
-            path = prompt("Encrypted file path (.scenc): ").strip().strip('"')
+            path = prompt("Zašifrovaný soubor (.scenc): ").strip().strip('"')
             if not path:
                 continue
             p = Path(path)
             if not p.is_file():
-                err("File not found."); pause(); continue
+                err("Soubor nenalezen."); pause(); continue
             pw = _ask_password(confirm=False)
             if not pw:
                 continue
-            info("Decrypting…")
+            info("Dešifruji…")
             r = _enc.decrypt_file(p, pw, logger)
             if r["ok"]:
-                ok(f"Decrypted: {r['dst']}")
+                ok(f"Dešifrováno [{r['algo']}]: {r['dst']}")
             else:
-                err(f"Failed: {r['error']}")
+                err(f"Chyba: {r['error']}")
             pause()
 
         elif c == "3":
-            path = prompt("Folder path: ").strip().strip('"')
+            path = prompt("Cesta ke složce: ").strip().strip('"')
             if not path:
                 continue
             p = Path(path)
             if not p.is_dir():
-                err("Folder not found."); pause(); continue
+                err("Složka nenalezena."); pause(); continue
             pw = _ask_password()
             if not pw:
                 continue
-            warn(f"Encrypt ALL files in '{p.name}'? Originals remain — encrypted copies will be created.")
+            warn(f"Zašifrovat VŠECHNY soubory v '{p.name}'? Originály zůstanou.")
             if prompt(t("prompt.type_yes")).upper() not in ("YES", "ANO"):
                 continue
-            info("Encrypting folder…")
-            r = _enc.encrypt_folder(p, pw, logger)
-            ok(f"Encrypted: {r['encrypted']}   Skipped: {r['skipped']}   Errors: {len(r['errors'])}")
+            info(f"Šifruji složku pomocí {_algo}…")
+            r = _enc.encrypt_folder(p, pw, logger, algo=_algo)
+            ok(f"Zašifrováno: {r['encrypted']}   Přeskočeno: {r['skipped']}   Chyby: {len(r['errors'])}")
             for e in r["errors"][:5]:
                 err(f"  {e}")
             pause()
 
         elif c == "4":
-            path = prompt("Folder path: ").strip().strip('"')
+            path = prompt("Cesta ke složce: ").strip().strip('"')
             if not path:
                 continue
             p = Path(path)
             if not p.is_dir():
-                err("Folder not found."); pause(); continue
+                err("Složka nenalezena."); pause(); continue
             pw = _ask_password(confirm=False)
             if not pw:
                 continue
-            info("Decrypting folder…")
+            info("Dešifruji složku…")
             r = _enc.decrypt_folder(p, pw, logger)
-            ok(f"Decrypted: {r['decrypted']}   Failed: {r['failed']}")
+            ok(f"Dešifrováno: {r['decrypted']}   Selhalo: {r['failed']}")
             for e in r["errors"][:5]:
                 err(f"  {e}")
+            pause()
+
+        elif c == "5":
+            # ── Auto-crack ────────────────────────────────────────────────
+            path = prompt("Soubor k prolomení (.scenc): ").strip().strip('"')
+            if not path:
+                continue
+            p = Path(path)
+            if not p.is_file():
+                err("Soubor nenalezen."); pause(); continue
+
+            sep()
+            print(f"  {B}Auto-crack konfigurace{RST}")
+            _wl_size = _enc._bundled_wordlist_size()
+            print(f"  {DIM}Fáze 1 : {len(_enc._COMMON_PASSWORDS)} nejčastějších hesel{RST}")
+            if _wl_size:
+                print(f"  {DIM}Fáze 2 : {_wl_size:,} hesel z vestavěného wordlistu{RST}")
+            print(f"  {DIM}Fáze 3 : brute-force (systematic/random){RST}")
+            sep("-")
+
+            wl_path = prompt("Vlastní wordlist soubor (Enter = přeskočit): ").strip().strip('"')
+            wl = Path(wl_path) if wl_path and Path(wl_path).is_file() else None
+            if wl_path and not wl:
+                warn("Wordlist nenalezen — přeskakuji.")
+
+            extra_raw = prompt("Vlastní hesla oddělená čárkou (Enter = přeskočit): ").strip()
+            extras = [x.strip() for x in extra_raw.split(",") if x.strip()] if extra_raw else []
+
+            print(f"\n  {DIM}Charset pro brute-force:{RST}")
+            cs_opts = list(_enc._CHARSETS.keys())
+            for i, cs in enumerate(cs_opts, 1):
+                sample = _enc._CHARSETS[cs][:20]
+                print(f"    {C}[{i}]{RST} {cs:<14} {DIM}({sample}…){RST}")
+            cs_ch = prompt("Charset (Enter = alnum): ").strip()
+            charset = cs_opts[int(cs_ch)-1] if cs_ch.isdigit() and 1 <= int(cs_ch) <= len(cs_opts) else "alnum"
+
+            min_l_raw = prompt("Min délka hesla pro BF (Enter = 1): ").strip()
+            max_l_raw = prompt("Max délka hesla pro BF (Enter = 4): ").strip()
+            min_l = int(min_l_raw) if min_l_raw.isdigit() else 1
+            max_l = int(max_l_raw) if max_l_raw.isdigit() else 4
+
+            rand_raw = prompt("Max random pokusů (Enter = 50000): ").strip()
+            max_rand = int(rand_raw) if rand_raw.isdigit() else 50_000
+
+            print(f"\n  {DIM}BF mód:{RST}")
+            print(f"    {C}[1]{RST} systematic  {DIM}(exhaustivní, zaručený do max délky){RST}")
+            print(f"    {C}[2]{RST} random      {DIM}(pokrývá větší délky, náhodný výběr){RST}")
+            print(f"    {C}[3]{RST} both        {DIM}(systematic + random){RST}")
+            bf_ch = prompt("Mód (Enter = systematic): ").strip()
+            bf_mode = {"1": "systematic", "2": "random", "3": "both"}.get(bf_ch, "systematic")
+
+            sep()
+            warn("scrypt KDF je záměrně pomalý — brute-force = ~1–5 pokusů/sec.")
+            print(f"  {DIM}Enter = přerušit  |  progress live níže:{RST}\n")
+
+            stop_ev = threading.Event()
+            result_box: list = []
+
+            def _crack_thread():
+                def _cb(n, pw, speed, phase):
+                    print(f"\r  {DIM}[{phase:<22}] [{n:>7}] {pw:<22}  {speed:.2f} p/s{RST}  ",
+                          end="", flush=True)
+                r = _enc.crack_file(
+                    p,
+                    wordlist_file=wl,
+                    use_bundled_wordlist=True,
+                    extra_passwords=extras,
+                    bf_mode=bf_mode,
+                    charset=charset,
+                    min_len=min_l,
+                    max_len=max_l,
+                    max_random=max_rand,
+                    progress_cb=_cb,
+                    stop_event=stop_ev,
+                )
+                result_box.append(r)
+
+            t_crack = threading.Thread(target=_crack_thread, daemon=True)
+            t_crack.start()
+
+            try:
+                input()
+            except (KeyboardInterrupt, EOFError):
+                pass
+            stop_ev.set()
+            t_crack.join(timeout=5)
+
+            print()
+            sep("═")
+            if result_box:
+                r = result_box[0]
+                elapsed = r.get("elapsed", 0)
+                attempts = r.get("attempts", 0)
+                if r["ok"]:
+                    ok(f"HESLO NALEZENO!  '{r['password']}'  (algoritmus: {r['algo']})")
+                    ok(f"Pokusy: {attempts}   Čas: {elapsed:.1f}s   "
+                       f"Speed: {attempts/max(elapsed,0.001):.2f} p/s")
+                    print(f"  {DIM}Nyní použij možnost [2] pro dešifrování s tímto heslem.{RST}")
+                else:
+                    warn(f"Heslo nenalezeno.  Pokusy: {attempts}   Čas: {elapsed:.1f}s")
+                    print(f"  {DIM}Tip: zkus delší max délku, jiný charset nebo vlastní wordlist.{RST}")
+            else:
+                warn("Crack přerušen před prvním výsledkem.")
+            pause()
+
+        elif c == "6":
+            _algo = _pick_algo()
+            ok(f"Algoritmus nastaven na: {_algo}")
+            pause()
+
+        elif c == "7":
+            # ── Archive crack (7-Zip / WinRAR / ZIP) ─────────────────────
+            path = prompt("Archiv k prolomení (.7z / .rar / .zip): ").strip().strip('"')
+            if not path:
+                continue
+            p = Path(path)
+            if not p.is_file():
+                err("Soubor nenalezen."); pause(); continue
+
+            # show available backends
+            tools = _arc.check_tools()
+            sep()
+            print(f"  {B}Dostupné nástroje:{RST}")
+            print(f"  {DIM}7z binárka  : {tools['7z_binary'] or '✗ nenalezena'}{RST}")
+            print(f"  {DIM}unrar       : {tools['unrar_binary'] or '✗ nenalezena'}{RST}")
+            print(f"  {DIM}py7zr       : {tools['py7zr'] or '✗ nenainstalováno'}{RST}")
+            print(f"  {DIM}rarfile     : {tools['rarfile'] or '✗ nenainstalováno'}{RST}")
+
+            _wl_size = _enc._bundled_wordlist_size()
+            sep("-")
+            print(f"  {B}Crack konfigurace — archiv: {p.name}{RST}")
+            if _wl_size:
+                print(f"  {DIM}Vestavěný wordlist: {_wl_size:,} hesel{RST}")
+
+            wl_path = prompt("Vlastní wordlist soubor (Enter = přeskočit): ").strip().strip('"')
+            wl = Path(wl_path) if wl_path and Path(wl_path).is_file() else None
+            if wl_path and not wl:
+                warn("Wordlist nenalezen — přeskakuji.")
+
+            extra_raw = prompt("Vlastní hesla oddělená čárkou (Enter = přeskočit): ").strip()
+            extras = [x.strip() for x in extra_raw.split(",") if x.strip()] if extra_raw else []
+
+            print(f"\n  {DIM}Charset pro brute-force:{RST}")
+            cs_opts = list(_enc._CHARSETS.keys())
+            for i, cs in enumerate(cs_opts, 1):
+                sample = _enc._CHARSETS[cs][:20]
+                print(f"    {C}[{i}]{RST} {cs:<14} {DIM}({sample}…){RST}")
+            cs_ch = prompt("Charset (Enter = alnum): ").strip()
+            charset = cs_opts[int(cs_ch)-1] if cs_ch.isdigit() and 1 <= int(cs_ch) <= len(cs_opts) else "alnum"
+
+            min_l_raw = prompt("Min délka hesla pro BF (Enter = 1): ").strip()
+            max_l_raw = prompt("Max délka hesla pro BF (Enter = 4): ").strip()
+            min_l = int(min_l_raw) if min_l_raw.isdigit() else 1
+            max_l = int(max_l_raw) if max_l_raw.isdigit() else 4
+
+            rand_raw = prompt("Max random pokusů (Enter = 10000): ").strip()
+            max_rand = int(rand_raw) if rand_raw.isdigit() else 10_000
+
+            print(f"\n  {DIM}BF mód:{RST}")
+            print(f"    {C}[1]{RST} systematic  {DIM}(exhaustivní, zaručený do max délky){RST}")
+            print(f"    {C}[2]{RST} random      {DIM}(pokrývá větší délky, náhodný výběr){RST}")
+            print(f"    {C}[3]{RST} both        {DIM}(systematic + random){RST}")
+            bf_ch = prompt("Mód (Enter = systematic): ").strip()
+            bf_mode = {"1": "systematic", "2": "random", "3": "both"}.get(bf_ch, "systematic")
+
+            sep()
+            warn(f"Archivní cracking je pomalý (~1–5 pokusů/sec pro .7z/.rar).")
+            warn(f"ZIP (ZipCrypto) bývá rychlejší. Enter = přerušit.")
+            print()
+
+            stop_ev = threading.Event()
+            result_box: list = []
+
+            def _arc_crack_thread():
+                def _cb(n, pw, speed, phase):
+                    print(f"\r  {DIM}[{phase:<22}] [{n:>7}] {pw:<22}  {speed:.2f} p/s{RST}  ",
+                          end="", flush=True)
+                r = _arc.crack_archive(
+                    p,
+                    wordlist_file=wl,
+                    use_bundled_wordlist=True,
+                    extra_passwords=extras,
+                    bf_mode=bf_mode,
+                    charset=charset,
+                    min_len=min_l,
+                    max_len=max_l,
+                    max_random=max_rand,
+                    progress_cb=_cb,
+                    stop_event=stop_ev,
+                )
+                result_box.append(r)
+
+            t_arc = threading.Thread(target=_arc_crack_thread, daemon=True)
+            t_arc.start()
+
+            try:
+                input()
+            except (KeyboardInterrupt, EOFError):
+                pass
+            stop_ev.set()
+            t_arc.join(timeout=5)
+
+            print()
+            sep("═")
+            if result_box:
+                r = result_box[0]
+                elapsed = r.get("elapsed", 0)
+                attempts = r.get("attempts", 0)
+                backend = r.get("backend") or "?"
+                if r["ok"]:
+                    ok(f"HESLO NALEZENO!  '{r['password']}'  (formát: {r['archive_type']}  backend: {backend})")
+                    ok(f"Pokusy: {attempts}   Čas: {elapsed:.1f}s   "
+                       f"Speed: {attempts/max(elapsed,0.001):.2f} p/s")
+                elif r.get("error") and "backend" not in r.get("error", "").lower() and "Unsupported" not in r.get("error", ""):
+                    warn(f"Heslo nenalezeno.  Pokusy: {attempts}   Čas: {elapsed:.1f}s")
+                    print(f"  {DIM}Tip: zkus delší max délku, jiný charset nebo vlastní wordlist.{RST}")
+                else:
+                    err(r.get("error", "Neznámá chyba"))
+                    if p.suffix.lower() == ".7z":
+                        print(f"  {DIM}Nainstaluj 7-Zip: brew install sevenzip  nebo: pip install py7zr{RST}")
+                    elif p.suffix.lower() == ".rar":
+                        print(f"  {DIM}Nainstaluj unrar: brew install rar  nebo: pip install rarfile{RST}")
+            else:
+                warn("Crack přerušen před prvním výsledkem.")
+            pause()
+
+        elif c == "8":
+            # ── PDF crack ─────────────────────────────────────────────────
+            if not _pdf.backend_available():
+                err("Knihovna pypdf není nainstalována.")
+                print(f"  {DIM}Spusť: pip install pypdf{RST}")
+                pause(); continue
+
+            path = prompt("PDF soubor: ").strip().strip('"')
+            if not path:
+                continue
+            p = Path(path)
+            if not p.is_file():
+                err("Soubor nenalezen."); pause(); continue
+            if not _pdf.is_encrypted(p):
+                warn("Tento PDF není zaheslovaný."); pause(); continue
+
+            sep()
+            _wl_size = _enc._bundled_wordlist_size()
+            print(f"  {B}PDF crack — {p.name}{RST}")
+            if _wl_size:
+                print(f"  {DIM}Vestavěný wordlist: {_wl_size:,} hesel{RST}")
+
+            wl_path = prompt("Vlastní wordlist (Enter = přeskočit): ").strip().strip('"')
+            wl = Path(wl_path) if wl_path and Path(wl_path).is_file() else None
+
+            extra_raw = prompt("Vlastní hesla oddělená čárkou (Enter = přeskočit): ").strip()
+            extras = [x.strip() for x in extra_raw.split(",") if x.strip()] if extra_raw else []
+
+            print(f"\n  {DIM}Charset pro BF:{RST}")
+            cs_opts = list(_enc._CHARSETS.keys())
+            for i, cs in enumerate(cs_opts, 1):
+                print(f"    {C}[{i}]{RST} {cs:<14} {DIM}({_enc._CHARSETS[cs][:20]}…){RST}")
+            cs_ch = prompt("Charset (Enter = alnum): ").strip()
+            charset = cs_opts[int(cs_ch)-1] if cs_ch.isdigit() and 1 <= int(cs_ch) <= len(cs_opts) else "alnum"
+
+            min_l_raw = prompt("Min délka BF (Enter = 1): ").strip()
+            max_l_raw = prompt("Max délka BF (Enter = 4): ").strip()
+            min_l = int(min_l_raw) if min_l_raw.isdigit() else 1
+            max_l = int(max_l_raw) if max_l_raw.isdigit() else 4
+
+            sep()
+            warn("Enter = přerušit  |  progress live níže:")
+            print()
+
+            stop_ev = threading.Event()
+            result_box: list = []
+
+            def _pdf_crack_thread():
+                def _cb(n, pw, speed, phase):
+                    print(f"\r  {DIM}[{phase:<22}] [{n:>7}] {pw:<22}  {speed:.2f} p/s{RST}  ",
+                          end="", flush=True)
+                r = _pdf.crack_pdf(
+                    p, wordlist_file=wl, use_bundled_wordlist=True,
+                    extra_passwords=extras, charset=charset,
+                    min_len=min_l, max_len=max_l,
+                    progress_cb=_cb, stop_event=stop_ev,
+                )
+                result_box.append(r)
+
+            t_pdf = threading.Thread(target=_pdf_crack_thread, daemon=True)
+            t_pdf.start()
+            try:
+                input()
+            except (KeyboardInterrupt, EOFError):
+                pass
+            stop_ev.set()
+            t_pdf.join(timeout=5)
+
+            print()
+            sep("═")
+            if result_box:
+                r = result_box[0]
+                elapsed = r.get("elapsed", 0)
+                attempts = r.get("attempts", 0)
+                if r["ok"]:
+                    ok(f"HESLO NALEZENO!  '{r['password']}'")
+                    ok(f"Pokusy: {attempts}   Čas: {elapsed:.1f}s   Speed: {attempts/max(elapsed,0.001):.2f} p/s")
+                else:
+                    warn(f"Heslo nenalezeno.  Pokusy: {attempts}   Čas: {elapsed:.1f}s")
+            else:
+                warn("Crack přerušen.")
             pause()
 
         else:
@@ -6230,6 +6659,1658 @@ def menu_language(logger: CleanerLogger):
 
     ok(t("lang.changed", lang=selected["native_name"]))
     pause()
+
+
+# ── 50. HASH CRACKER ─────────────────────────────────────────
+
+def menu_hashcrack(logger: CleanerLogger):
+    from core import hashcrack as _hc
+    from core import fileencrypt as _enc
+
+    while True:
+        header(t("menu.hash_crack"))
+        sep()
+        print(f"  {C}[1]{RST} Crack hash                {DIM}(MD5 · SHA1 · SHA256 · SHA512 · bcrypt){RST}")
+        print(f"  {C}[2]{RST} Detekovat typ hashe       {DIM}(z délky / formátu){RST}")
+        print(f"  {C}[0]{RST} {t('menu.back')}")
+        sep()
+        c = prompt()
+
+        if c == "0":
+            break
+
+        elif c == "2":
+            h = prompt("Hash: ").strip()
+            if not h:
+                continue
+            algo = _hc.detect_algo(h)
+            if algo:
+                ok(f"Detekovaný algoritmus: {B}{algo}{RST}")
+            else:
+                warn("Algoritmus nerozpoznán (neznámá délka nebo formát).")
+            pause()
+
+        elif c == "1":
+            h = prompt("Hash k prolomení: ").strip()
+            if not h:
+                continue
+
+            algo = _hc.detect_algo(h)
+            if algo:
+                info(f"Auto-detekce: {algo}")
+            else:
+                print(f"  {DIM}Dostupné: {', '.join(_hc.SUPPORTED)}{RST}")
+                algo_in = prompt("Algoritmus (Enter = md5): ").strip().lower()
+                algo = algo_in if algo_in in _hc.SUPPORTED else "md5"
+
+            is_bcrypt = (algo == "bcrypt")
+            if is_bcrypt:
+                warn("bcrypt: ~100 ms / pokus — wordlist pouze, BF přeskočen.")
+
+            sep("-")
+            _wl_size = _enc._bundled_wordlist_size()
+            if _wl_size:
+                print(f"  {DIM}Vestavěný wordlist: {_wl_size:,} hesel{RST}")
+
+            wl_path = prompt("Vlastní wordlist (Enter = přeskočit): ").strip().strip('"')
+            wl = Path(wl_path) if wl_path and Path(wl_path).is_file() else None
+
+            extra_raw = prompt("Vlastní hesla oddělená čárkou: ").strip()
+            extras = [x.strip() for x in extra_raw.split(",") if x.strip()] if extra_raw else []
+
+            if not is_bcrypt:
+                print(f"\n  {DIM}Charset pro BF:{RST}")
+                cs_opts = list(_enc._CHARSETS.keys())
+                for i, cs in enumerate(cs_opts, 1):
+                    print(f"    {C}[{i}]{RST} {cs:<14} {DIM}({_enc._CHARSETS[cs][:20]}…){RST}")
+                cs_ch = prompt("Charset (Enter = alnum): ").strip()
+                charset = cs_opts[int(cs_ch)-1] if cs_ch.isdigit() and 1 <= int(cs_ch) <= len(cs_opts) else "alnum"
+
+                min_l_raw = prompt("Min délka BF (Enter = 1): ").strip()
+                max_l_raw = prompt("Max délka BF (Enter = 6): ").strip()
+                min_l = int(min_l_raw) if min_l_raw.isdigit() else 1
+                max_l = int(max_l_raw) if max_l_raw.isdigit() else 6
+
+                print(f"\n  {DIM}BF mód:{RST}")
+                print(f"    {C}[1]{RST} systematic   {C}[2]{RST} random   {C}[3]{RST} both")
+                bf_ch = prompt("Mód (Enter = systematic): ").strip()
+                bf_mode = {"1": "systematic", "2": "random", "3": "both"}.get(bf_ch, "systematic")
+            else:
+                charset, min_l, max_l, bf_mode = "alnum", 1, 4, "none"
+
+            sep()
+            warn("MD5/SHA: miliony pokusů/sec.  bcrypt: ~10/sec.  Enter = přerušit.")
+            print()
+
+            stop_ev = threading.Event()
+            result_box: list = []
+
+            def _hc_thread():
+                def _cb(n, pw, speed, phase):
+                    print(f"\r  {DIM}[{phase:<22}] [{n:>8}] {pw:<22}  {speed:,.0f} p/s{RST}  ",
+                          end="", flush=True)
+                r = _hc.crack_hash(
+                    h, algo=algo,
+                    wordlist_file=wl, use_bundled_wordlist=True,
+                    extra_passwords=extras,
+                    bf_mode=bf_mode, charset=charset,
+                    min_len=min_l, max_len=max_l,
+                    progress_cb=_cb, stop_event=stop_ev,
+                )
+                result_box.append(r)
+
+            t_hc = threading.Thread(target=_hc_thread, daemon=True)
+            t_hc.start()
+            try:
+                input()
+            except (KeyboardInterrupt, EOFError):
+                pass
+            stop_ev.set()
+            t_hc.join(timeout=3)
+
+            print()
+            sep("═")
+            if result_box:
+                r = result_box[0]
+                elapsed = r.get("elapsed", 0)
+                attempts = r.get("attempts", 0)
+                if r["ok"]:
+                    ok(f"HESLO NALEZENO!  '{r['password']}'  (algo: {r['algo']})")
+                    ok(f"Pokusy: {attempts:,}   Čas: {elapsed:.1f}s   Speed: {attempts/max(elapsed,0.001):,.0f} p/s")
+                else:
+                    warn(f"Heslo nenalezeno.  Pokusy: {attempts:,}   Čas: {elapsed:.1f}s")
+            else:
+                warn("Přerušeno.")
+            pause()
+
+        else:
+            err(t("app.unknown_option"))
+
+
+# ── 51. PASSWORD GENERATOR ───────────────────────────────────
+
+def menu_passgen(logger: CleanerLogger):
+    from core import passgen as _pg
+
+    while True:
+        header(t("menu.pass_gen"))
+        sep()
+        print(f"  {C}[1]{RST} Generovat hesla")
+        print(f"  {C}[2]{RST} Zkontrolovat sílu hesla")
+        print(f"  {C}[0]{RST} {t('menu.back')}")
+        sep()
+        c = prompt()
+
+        if c == "0":
+            break
+
+        elif c == "2":
+            pw = prompt("Heslo k analýze: ").strip()
+            if not pw:
+                continue
+            d = _pg.check_strength(pw)
+            sep()
+            print(f"  Délka        : {d['length']}")
+            print(f"  Entropie     : {d['entropy_bits']} bits")
+            print(f"  Síla         : {B}{d['strength']}{RST}  {d['bar']}")
+            print(f"  Pool         : {d['charset_size']} znaků")
+            parts = []
+            if d["has_lower"]: parts.append("malá")
+            if d["has_upper"]: parts.append("velká")
+            if d["has_digit"]: parts.append("číslice")
+            if d["has_sym"]:   parts.append("symboly")
+            print(f"  Typy znaků   : {', '.join(parts) or '—'}")
+            sep()
+            pause()
+
+        elif c == "1":
+            print(f"\n  {DIM}Typy znaků:{RST}")
+            cs_opts = list(_pg.CHARSETS.keys())
+            for i, cs in enumerate(cs_opts, 1):
+                sample = _pg.CHARSETS[cs][:24]
+                print(f"    {C}[{i}]{RST} {cs:<14}  {DIM}{sample}{RST}")
+
+            cs_ch = prompt("Charset (Enter = alnum+syms): ").strip()
+            charset = cs_opts[int(cs_ch)-1] if cs_ch.isdigit() and 1 <= int(cs_ch) <= len(cs_opts) else "alnum+syms"
+
+            len_raw  = prompt("Délka hesla (Enter = 16): ").strip()
+            cnt_raw  = prompt("Počet hesel  (Enter = 5): ").strip()
+            length   = int(len_raw)  if len_raw.isdigit()  else 16
+            count    = int(cnt_raw)  if cnt_raw.isdigit()  else 5
+
+            no_rep_ch = prompt("Bez opakování znaků? [y/N]: ").strip().lower()
+            no_rep = no_rep_ch in ("y", "yes", "a", "ano")
+
+            pron_ch = prompt("Vyslovitelná hesla? [y/N]: ").strip().lower()
+            pron = pron_ch in ("y", "yes", "a", "ano")
+
+            sep()
+            try:
+                passwords = _pg.generate(length=length, charset=charset,
+                                         count=count, no_repeat=no_rep,
+                                         pronounceable=pron)
+            except ValueError as exc:
+                err(str(exc)); pause(); continue
+
+            for pw in passwords:
+                d = _pg.check_strength(pw)
+                bar = d["bar"]
+                print(f"  {G}{pw}{RST}   {DIM}{d['entropy_bits']}b  {d['strength']}  {bar}{RST}")
+
+            save_ch = prompt("\nUložit do souboru? (Enter = přeskočit): ").strip().strip('"')
+            if save_ch:
+                try:
+                    Path(save_ch).write_text("\n".join(passwords) + "\n", encoding="utf-8")
+                    ok(f"Uloženo: {save_ch}")
+                except Exception as exc:
+                    err(str(exc))
+            pause()
+
+        else:
+            err(t("app.unknown_option"))
+
+
+# ── 52. FILE INTEGRITY ───────────────────────────────────────
+
+def menu_integrity(logger: CleanerLogger):
+    from core import integrity as _intg
+
+    _baseline_file = str(Path.home() / ".syscleaner_baseline.json")
+
+    while True:
+        header(t("menu.integrity"))
+        meta = _intg.baseline_meta(_baseline_file)
+        if meta:
+            print(f"  {DIM}Baseline: {meta['file_count']} souborů · {meta['algo']} · {meta['created_at']}{RST}")
+            print(f"  {DIM}Adresář : {meta['directory']}{RST}")
+        else:
+            print(f"  {DIM}Žádný baseline — vytvoř [1].{RST}")
+        sep()
+        print(f"  {C}[1]{RST} Vytvořit baseline     {DIM}(hashovat adresář){RST}")
+        print(f"  {C}[2]{RST} Porovnat s baseline   {DIM}(zobrazit změny){RST}")
+        print(f"  {C}[3]{RST} Vlastní cesta baseline")
+        print(f"  {C}[0]{RST} {t('menu.back')}")
+        sep()
+        c = prompt()
+
+        if c == "0":
+            break
+
+        elif c == "3":
+            p = prompt(f"Cesta k baseline souboru [{_baseline_file}]: ").strip().strip('"')
+            if p:
+                _baseline_file = p
+                ok(f"Nastaveno: {_baseline_file}")
+            pause()
+
+        elif c == "1":
+            d = prompt("Adresář ke skenování: ").strip().strip('"')
+            if not d or not Path(d).is_dir():
+                err("Adresář nenalezen."); pause(); continue
+
+            excl_raw = prompt("Vyloučit vzory (čárkou, Enter = nic): ").strip()
+            excl = [x.strip() for x in excl_raw.split(",") if x.strip()]
+
+            print(f"\n  {DIM}Algoritmus: md5 / sha256 / sha512{RST}")
+            algo_in = prompt("Algo (Enter = sha256): ").strip().lower()
+            algo = algo_in if algo_in in ("md5", "sha256", "sha512") else "sha256"
+
+            sep()
+            info(f"Hashování '{d}' pomocí {algo}…")
+
+            cnt = [0]
+            def _prog(n, rel):
+                cnt[0] = n
+                print(f"\r  {DIM}{n} souborů — {rel[-50:]}{RST}  ", end="", flush=True)
+
+            r = _intg.create_baseline(d, _baseline_file, algo=algo,
+                                       exclude_patterns=excl, progress_cb=_prog)
+            print()
+            sep("═")
+            ok(f"Baseline uložen: {r['baseline_file']}")
+            ok(f"Soubory: {r['hashed']:,}   Chyby: {r['errors']}   Algo: {r['algo']}")
+            pause()
+
+        elif c == "2":
+            if not Path(_baseline_file).is_file():
+                err("Baseline neexistuje. Nejdříve vytvoř [1]."); pause(); continue
+
+            info("Porovnávám s baseline…")
+            cnt = [0]
+            def _prog2(n, rel):
+                print(f"\r  {DIM}{n} souborů zkontrolováno…{RST}  ", end="", flush=True)
+
+            try:
+                r = _intg.check_baseline(_baseline_file, progress_cb=_prog2)
+            except Exception as exc:
+                print()
+                err(f"Chyba: {exc}"); pause(); continue
+
+            print()
+            sep("═")
+            if r["clean"]:
+                ok("Žádné změny — integrita OK!")
+            else:
+                if r["added"]:
+                    warn(f"NOVÉ soubory ({len(r['added'])}):")
+                    for f in r["added"][:20]:
+                        print(f"    {G}+{RST} {f}")
+                    if len(r["added"]) > 20:
+                        print(f"    {DIM}… a {len(r['added'])-20} dalších{RST}")
+                if r["modified"]:
+                    warn(f"ZMĚNĚNÉ soubory ({len(r['modified'])}):")
+                    for f in r["modified"][:20]:
+                        print(f"    {Y}~{RST} {f['path']}")
+                    if len(r["modified"]) > 20:
+                        print(f"    {DIM}… a {len(r['modified'])-20} dalších{RST}")
+                if r["deleted"]:
+                    warn(f"SMAZANÉ soubory ({len(r['deleted'])}):")
+                    for f in r["deleted"][:20]:
+                        print(f"    {R}−{RST} {f}")
+                    if len(r["deleted"]) > 20:
+                        print(f"    {DIM}… a {len(r['deleted'])-20} dalších{RST}")
+            if r["errors"]:
+                warn(f"Chyby čtení: {len(r['errors'])}")
+            pause()
+
+        else:
+            err(t("app.unknown_option"))
+
+
+# ── 53. NETWORK SCANNER ──────────────────────────────────────
+
+def menu_netscanner(logger: CleanerLogger):
+    from core import netscanner as _ns
+
+    while True:
+        header(t("menu.net_scan"))
+        sep()
+        print(f"  {C}[1]{RST} Port scan                {DIM}(top 100 portů){RST}")
+        print(f"  {C}[2]{RST} Vlastní port scan        {DIM}(rozsah / seznam){RST}")
+        print(f"  {C}[3]{RST} Ping sweep               {DIM}(celá podsíť .1–.254){RST}")
+        print(f"  {C}[4]{RST} Banner grab              {DIM}(čtení service banneru){RST}")
+        print(f"  {C}[5]{RST} Resolve / reverse DNS")
+        print(f"  {C}[6]{RST} Traceroute               {DIM}(hop-by-hop cesta){RST}")
+        print(f"  {C}[7]{RST} WHOIS lookup             {DIM}(registrant info){RST}")
+        print(f"  {C}[0]{RST} {t('menu.back')}")
+        sep()
+        c = prompt()
+
+        if c == "0":
+            break
+
+        elif c == "1" or c == "2":
+            host = prompt("Cíl (hostname / IP): ").strip()
+            if not host:
+                continue
+
+            ip = _ns.resolve(host)
+            if ip:
+                info(f"Resolved: {ip}")
+            else:
+                warn("DNS lookup selhal — zkusím přímo.")
+
+            if c == "1":
+                ports = _ns.TOP_100_PORTS
+                info(f"Skenuji {len(ports)} portů na {host}…")
+            else:
+                spec = prompt("Porty (např. 22,80,443,1000-2000): ").strip()
+                ports = _ns.parse_port_range(spec)
+                if not ports:
+                    err("Žádné porty."); pause(); continue
+                info(f"Skenuji {len(ports)} portů na {host}…")
+
+            grab_ch = prompt("Banner grab pro otevřené porty? [y/N]: ").strip().lower()
+            grab = grab_ch in ("y", "yes", "a", "ano")
+
+            tout_raw = prompt("Timeout v sekundách (Enter = 0.5): ").strip()
+            try:
+                tout = float(tout_raw) if tout_raw else 0.5
+            except ValueError:
+                tout = 0.5
+
+            done = [0]
+            def _prog(scanned, total, port):
+                pct = scanned * 100 // max(total, 1)
+                print(f"\r  {DIM}[{pct:>3}%] {scanned}/{total}  port {port}{RST}  ", end="", flush=True)
+
+            stop_ev = threading.Event()
+            result_box: list = []
+
+            def _scan_thread():
+                result_box.append(
+                    _ns.scan_ports(host, ports, timeout=tout,
+                                   grab_banners=grab, progress_cb=_prog,
+                                   stop_event=stop_ev)
+                )
+
+            t_sc = threading.Thread(target=_scan_thread, daemon=True)
+            t_sc.start()
+            try:
+                t_sc.join()
+            except KeyboardInterrupt:
+                stop_ev.set()
+
+            print()
+            sep("═")
+            open_ports = result_box[0] if result_box else []
+            if not open_ports:
+                info("Žádné otevřené porty nalezeny.")
+            else:
+                ok(f"Otevřené porty: {len(open_ports)}")
+                for entry in open_ports:
+                    svc  = f"  {DIM}({entry['service']}){RST}" if entry["service"] else ""
+                    bnr  = f"  {DIM}{entry['banner'][:60]}{RST}" if entry.get("banner") else ""
+                    print(f"    {G}{entry['port']:>5}{RST}{svc}{bnr}")
+            logger.log("net_scan", "netscanner", f"host={host} open={len(open_ports)}")
+            pause()
+
+        elif c == "3":
+            base = prompt("Základ IP (např. 192.168.1): ").strip()
+            if not base:
+                continue
+            start_raw = prompt("Od (Enter = 1): ").strip()
+            end_raw   = prompt("Do (Enter = 254): ").strip()
+            start_i = int(start_raw) if start_raw.isdigit() else 1
+            end_i   = int(end_raw)   if end_raw.isdigit()   else 254
+
+            sep()
+            info(f"Ping sweep {base}.{start_i}–{end_i}…")
+
+            done = [0]
+            total = end_i - start_i + 1
+            def _pprog(scanned, tot, host_):
+                pct = scanned * 100 // max(tot, 1)
+                print(f"\r  {DIM}[{pct:>3}%] {host_}{RST}  ", end="", flush=True)
+
+            stop_ev = threading.Event()
+            result_box: list = []
+
+            def _sweep_thread():
+                result_box.append(
+                    _ns.ping_sweep(base, start=start_i, end=end_i,
+                                   progress_cb=_pprog, stop_event=stop_ev)
+                )
+
+            t_sw = threading.Thread(target=_sweep_thread, daemon=True)
+            t_sw.start()
+            try:
+                t_sw.join()
+            except KeyboardInterrupt:
+                stop_ev.set()
+
+            print()
+            sep("═")
+            alive = result_box[0] if result_box else []
+            if not alive:
+                info("Žádné aktivní hosty nalezeny.")
+            else:
+                ok(f"Aktivní hosty: {len(alive)}")
+                for h in alive:
+                    rdns = f"  {DIM}{h['rdns']}{RST}" if h.get("rdns") else ""
+                    os_g = f"  {DIM}{h['os_guess']}{RST}" if h.get("os_guess") else ""
+                    rtt  = f"  {h['rtt_ms']:.0f}ms" if h.get("rtt_ms") else ""
+                    print(f"    {G}{h['host']:<18}{RST}{rtt}{rdns}{os_g}")
+            pause()
+
+        elif c == "4":
+            host = prompt("Cíl: ").strip()
+            port_raw = prompt("Port: ").strip()
+            if not host or not port_raw.isdigit():
+                continue
+            port = int(port_raw)
+            info(f"Čtu banner {host}:{port}…")
+            banner = _ns.grab_banner(host, port)
+            sep()
+            if banner:
+                ok(f"Banner ({len(banner)} znaků):")
+                print(f"  {DIM}{banner}{RST}")
+            else:
+                warn("Žádný banner (spojení odmítnuto nebo timeout).")
+            pause()
+
+        elif c == "5":
+            host = prompt("Hostname nebo IP: ").strip()
+            if not host:
+                continue
+            sep()
+            ip = _ns.resolve(host)
+            if ip:
+                print(f"  {G}→  IP  :{RST} {ip}")
+                rdns = _ns._reverse(ip)
+                if rdns:
+                    print(f"  {G}→  rDNS:{RST} {rdns}")
+            else:
+                warn(f"DNS lookup selhal pro '{host}'.")
+            pause()
+
+        elif c == "6":
+            host = prompt("Cíl (hostname / IP): ").strip()
+            if not host:
+                continue
+            hops_raw = prompt("Max hopů (Enter = 30): ").strip()
+            max_hops = int(hops_raw) if hops_raw.isdigit() else 30
+            sep()
+            info(f"Traceroute → {host}  (max {max_hops} hopů)…")
+            hops = _ns.traceroute(host, max_hops=max_hops)
+            sep("═")
+            if hops and hops[0].get("error"):
+                err(hops[0]["error"])
+            else:
+                for h in hops:
+                    ip_str  = h["ip"] or "*"
+                    rtt_str = f"{h['rtt_ms']:.1f} ms" if h["rtt_ms"] else "  *  "
+                    dns_str = f"  {DIM}{h['rdns']}{RST}" if h.get("rdns") else ""
+                    print(f"  {C}{h['hop']:>3}{RST}  {G}{ip_str:<18}{RST}  {rtt_str}{dns_str}")
+            pause()
+
+        elif c == "7":
+            host = prompt("Doména nebo IP: ").strip()
+            if not host:
+                continue
+            info(f"WHOIS pro {host}…")
+            result = _ns.whois(host)
+            sep("═")
+            for line in result.splitlines()[:60]:
+                print(f"  {DIM}{line}{RST}")
+            if len(result.splitlines()) > 60:
+                print(f"  {DIM}… ({len(result.splitlines())} řádků celkem){RST}")
+            pause()
+
+        else:
+            err(t("app.unknown_option"))
+
+
+# ── 54. MEMORY INSPECTOR ─────────────────────────────────────
+
+def menu_memscanner(logger: CleanerLogger):
+    from core import memscanner as _mem
+    import platform
+
+    while True:
+        header(t("menu.mem_scan"))
+        sep()
+        print(f"  {C}[1]{RST} Zobrazit seznam procesů")
+        print(f"  {C}[2]{RST} Inspekce procesu        {DIM}(env, cmdline, soubory, sítě){RST}")
+        print(f"  {C}[3]{RST} Scan paměti pro stringy {DIM}(Linux/Windows hloubkový scan){RST}")
+        print(f"  {C}[0]{RST} {t('menu.back')}")
+        sep()
+        c = prompt()
+
+        if c == "0":
+            break
+
+        elif c == "1":
+            info("Načítám procesy…")
+            procs = _mem.list_processes()
+            sep()
+            print(f"  {'PID':>6}  {'Jméno':<28}  {'Status':<10}  {'Cmdline'}")
+            print(f"  {DIM}{'-'*75}{RST}")
+            flt = prompt("Filtr (Enter = vše): ").strip().lower()
+            shown = [p for p in procs if not flt or flt in p["name"].lower() or flt in p["cmdline"].lower()]
+            for p in shown[:60]:
+                cmd = p["cmdline"][:35]
+                print(f"  {C}{p['pid']:>6}{RST}  {p['name']:<28}  {DIM}{p['status']:<10}{RST}  {DIM}{cmd}{RST}")
+            if len(shown) > 60:
+                print(f"  {DIM}… a {len(shown)-60} dalších{RST}")
+            pause()
+
+        elif c == "2":
+            pid_raw = prompt("PID nebo název procesu: ").strip()
+            if not pid_raw:
+                continue
+
+            pid: int | None = None
+            if pid_raw.isdigit():
+                pid = int(pid_raw)
+            else:
+                procs = _mem.list_processes()
+                matches = [p for p in procs if pid_raw.lower() in p["name"].lower()]
+                if not matches:
+                    err(f"Proces '{pid_raw}' nenalezen."); pause(); continue
+                if len(matches) > 1:
+                    for i, p in enumerate(matches[:10], 1):
+                        print(f"  {C}[{i}]{RST} PID {p['pid']}  {p['name']}")
+                    sel = prompt("Vyber číslo: ").strip()
+                    if sel.isdigit() and 1 <= int(sel) <= len(matches):
+                        pid = matches[int(sel)-1]["pid"]
+                    else:
+                        continue
+                else:
+                    pid = matches[0]["pid"]
+
+            info(f"Inspekce PID {pid}…")
+            d = _mem.inspect_process(pid)
+            sep("═")
+            print(f"  {B}PID:{RST} {d['pid']}  {B}Jméno:{RST} {d['name']}  {B}Status:{RST} {d['status']}")
+            print(f"  {B}EXE:{RST} {d.get('exe','?')}")
+            print(f"  {B}CWD:{RST} {d.get('cwd','?')}")
+            print(f"  {B}CMD:{RST} {' '.join(d.get('cmdline',[]))[:100]}")
+            if d.get("_error"):
+                warn(d["_error"])
+
+            if d.get("secrets_found"):
+                sep("-")
+                warn(f"Potenciální tajemství ({len(d['secrets_found'])}):")
+                for s in d["secrets_found"]:
+                    print(f"  {R}[{s['source']}]{RST} {Y}{s['key']}{RST} = {s['value'][:80]}")
+
+            sep("-")
+            env = d.get("env", {})
+            if "_note" in env:
+                print(f"  {DIM}ENV: {env['_note']}{RST}")
+            else:
+                print(f"  {B}ENV:{RST} {len(env)} proměnných")
+                show_env = prompt("Zobrazit env proměnné? [y/N]: ").strip().lower()
+                if show_env in ("y", "yes", "a", "ano"):
+                    for k, v in list(env.items())[:40]:
+                        print(f"    {DIM}{k}{RST}={v[:80]}")
+
+            sep("-")
+            files = d.get("open_files", [])
+            print(f"  {B}Otevřené soubory:{RST} {len(files)}")
+            for f in files[:15]:
+                print(f"    {DIM}{f}{RST}")
+
+            conns = d.get("connections", [])
+            print(f"  {B}Síťová spojení:{RST} {len(conns)}")
+            for conn in conns[:10]:
+                print(f"    {DIM}{conn['local']}  →  {conn['remote']}  [{conn['status']}]{RST}")
+
+            children = d.get("children", [])
+            if children:
+                print(f"  {B}Potomci:{RST} {len(children)}")
+                for ch in children:
+                    print(f"    {DIM}PID {ch['pid']}  {ch['name']}{RST}")
+
+            logger.log("mem_inspect", "memscanner", f"pid={pid} name={d.get('name','?')}")
+            pause()
+
+        elif c == "3":
+            plat = platform.system()
+            if plat not in ("Linux", "Windows"):
+                warn(f"Hloubkový scan paměti není podporován na {plat}.")
+                info("Použij [2] pro env/cmdline secrets.")
+                pause(); continue
+
+            pid_raw = prompt("PID: ").strip()
+            if not pid_raw.isdigit():
+                continue
+            pid = int(pid_raw)
+
+            kw = prompt("Klíčové slovo pro filtrování stringů (Enter = vše): ").strip()
+            min_l_raw = prompt("Min délka stringu (Enter = 6): ").strip()
+            max_s_raw = prompt("Max počet stringů (Enter = 500): ").strip()
+            min_l = int(min_l_raw) if min_l_raw.isdigit() else 6
+            max_s = int(max_s_raw) if max_s_raw.isdigit() else 500
+
+            sep()
+            info(f"Scanuji paměť PID {pid}…")
+            done_box: list = [0]
+            def _mprog(regions, strings):
+                print(f"\r  {DIM}Regiony: {regions}   Stringy: {strings}{RST}  ", end="", flush=True)
+
+            r = _mem.scan_memory_strings(pid, keyword=kw, min_len=min_l,
+                                          max_strings=max_s, progress_cb=_mprog)
+            print()
+            sep("═")
+            if r.get("error"):
+                err(r["error"])
+            else:
+                ok(f"Nalezeno {r['count']} stringů  (metoda: {r['method']})")
+                for s in r["strings"][:100]:
+                    print(f"  {DIM}{s[:100]}{RST}")
+                if r["count"] > 100:
+                    print(f"  {DIM}… a {r['count']-100} dalších{RST}")
+                save_ch = prompt("\nUložit do souboru? (Enter = přeskočit): ").strip().strip('"')
+                if save_ch:
+                    try:
+                        Path(save_ch).write_text("\n".join(r["strings"]), encoding="utf-8")
+                        ok(f"Uloženo: {save_ch}")
+                    except Exception as exc:
+                        err(str(exc))
+            pause()
+
+        else:
+            err(t("app.unknown_option"))
+
+
+# ──────────────────────────────────────────────────────────────
+def menu_stego(logger):
+    from core import stego as _stego
+    while True:
+        clr(); hdr(t("menu.stego"))
+        print(f"  {C}[1]{RST} Skrýt data v obrázku")
+        print(f"  {C}[2]{RST} Extrahovat data z obrázku")
+        print(f"  {C}[3]{RST} Zjistit kapacitu obrázku")
+        print(f"  {C}[0]{RST} {t('app.back')}")
+        ch = prompt(t("app.choice")).strip()
+        if ch == "0":
+            break
+        elif ch == "1":
+            cover = prompt("Zdrojový obrázek (PNG/BMP): ").strip().strip('"')
+            if not cover:
+                continue
+            data_src = prompt("Soubor s daty ke skrytí: ").strip().strip('"')
+            if not data_src:
+                continue
+            out = prompt("Výstupní obrázek [auto]: ").strip().strip('"')
+            if not out:
+                from pathlib import Path as _P
+                out = str(_P(cover).stem) + "_stego.png"
+            pw = prompt("Heslo (Enter = bez hesla): ").strip()
+            try:
+                data_bytes = open(data_src, "rb").read()
+                cap = _stego.capacity(cover)
+                if len(data_bytes) > cap:
+                    err(f"Data příliš velká ({len(data_bytes)} B > kapacita {cap} B)")
+                    pause(); continue
+                _stego.hide(cover, data_bytes, out, password=pw or None)
+                ok(f"Data skryta → {out}")
+                logger.log("stego_hide", "stego", f"cover={cover} data={data_src} out={out}")
+            except Exception as exc:
+                err(str(exc))
+            pause()
+        elif ch == "2":
+            src = prompt("Steganografický obrázek: ").strip().strip('"')
+            if not src:
+                continue
+            pw = prompt("Heslo (Enter = bez hesla): ").strip()
+            save_to = prompt("Uložit extrahovaná data do souboru (Enter = zobrazit): ").strip().strip('"')
+            try:
+                data_bytes = _stego.extract(src, password=pw or None)
+                if save_to:
+                    open(save_to, "wb").write(data_bytes)
+                    ok(f"Extrahováno {len(data_bytes)} B → {save_to}")
+                else:
+                    try:
+                        txt = data_bytes.decode("utf-8")
+                        sep()
+                        print(txt[:2000])
+                        if len(txt) > 2000:
+                            print(f"  {DIM}… zkráceno{RST}")
+                    except UnicodeDecodeError:
+                        ok(f"Extrahováno {len(data_bytes)} B (binární data)")
+                logger.log("stego_extract", "stego", f"src={src}")
+            except Exception as exc:
+                err(str(exc))
+            pause()
+        elif ch == "3":
+            src = prompt("Obrázek: ").strip().strip('"')
+            if not src:
+                continue
+            try:
+                cap = _stego.capacity(src)
+                ok(f"Kapacita: {cap} B  ({cap/1024:.1f} KB)")
+            except Exception as exc:
+                err(str(exc))
+            pause()
+
+
+def menu_metastrip(logger):
+    from core import metastrip as _meta
+    while True:
+        clr(); hdr(t("menu.metastrip"))
+        print(f"  {C}[1]{RST} Přečíst metadata souboru")
+        print(f"  {C}[2]{RST} Odstranit metadata ze souboru")
+        print(f"  {C}[0]{RST} {t('app.back')}")
+        ch = prompt(t("app.choice")).strip()
+        if ch == "0":
+            break
+        elif ch == "1":
+            src = prompt("Soubor (JPG/PNG/DOCX/PDF): ").strip().strip('"')
+            if not src:
+                continue
+            try:
+                meta = _meta.read_meta(src)
+                sep()
+                if not meta:
+                    info("Žádná metadata nenalezena.")
+                else:
+                    for k, v in meta.items():
+                        print(f"  {C}{k}{RST}: {v}")
+            except Exception as exc:
+                err(str(exc))
+            pause()
+        elif ch == "2":
+            src = prompt("Zdrojový soubor: ").strip().strip('"')
+            if not src:
+                continue
+            dst = prompt("Výstupní soubor [auto]: ").strip().strip('"')
+            if not dst:
+                from pathlib import Path as _P
+                p = _P(src)
+                dst = str(p.parent / (p.stem + "_clean" + p.suffix))
+            try:
+                _meta.strip(src, dst)
+                ok(f"Metadata odstraněna → {dst}")
+                logger.log("meta_strip", "metastrip", f"src={src} dst={dst}")
+            except Exception as exc:
+                err(str(exc))
+            pause()
+
+
+def menu_hibp(logger):
+    from core import hibp as _hibp
+    while True:
+        clr(); hdr(t("menu.hibp"))
+        print(f"  {C}[1]{RST} Zkontrolovat heslo (k-anonymita, bez API klíče)")
+        print(f"  {C}[2]{RST} Zkontrolovat e-mail (vyžaduje HIBP API klíč)")
+        print(f"  {C}[3]{RST} Zkontrolovat více hesel najednou")
+        print(f"  {C}[0]{RST} {t('app.back')}")
+        ch = prompt(t("app.choice")).strip()
+        if ch == "0":
+            break
+        elif ch == "1":
+            pw = prompt("Heslo: ").strip()
+            if not pw:
+                continue
+            info("Kontroluji…")
+            r = _hibp.check_password(pw)
+            sep()
+            if r.get("error"):
+                err(r["error"])
+            elif r["pwned"]:
+                print(f"  {R}KOMPROMITOVÁNO! Nalezeno {r['count']}× v databázi úniků.{RST}")
+            else:
+                ok("Heslo NEBYLO nalezeno v databázi úniků.")
+            logger.log("hibp_pw", "hibp", f"pwned={r.get('pwned')}")
+            pause()
+        elif ch == "2":
+            email = prompt("E-mail: ").strip()
+            api_key = prompt("HIBP API klíč: ").strip()
+            if not email or not api_key:
+                continue
+            info("Kontroluji breaches…")
+            breaches = _hibp.check_email_breaches(email, api_key)
+            sep()
+            if isinstance(breaches, dict) and breaches.get("error"):
+                err(breaches["error"])
+            elif not breaches:
+                ok("E-mail nebyl nalezen v žádném úniku.")
+            else:
+                print(f"  {R}Nalezeno v {len(breaches)} únicích:{RST}")
+                for b in breaches:
+                    print(f"    {DIM}{b.get('Name','?')} ({b.get('BreachDate','?')}){RST}")
+            logger.log("hibp_email", "hibp", f"email={email}")
+            pause()
+        elif ch == "3":
+            raw = prompt("Hesla oddělená čárkou: ").strip()
+            if not raw:
+                continue
+            pws = [p.strip() for p in raw.split(",") if p.strip()]
+            info(f"Kontroluji {len(pws)} hesel…")
+            results = _hibp.check_multiple_passwords(pws)
+            sep()
+            for pw2, r in results.items():
+                if r.get("error"):
+                    print(f"  {Y}{pw2}{RST}: chyba – {r['error']}")
+                elif r["pwned"]:
+                    print(f"  {R}{pw2}{RST}: KOMPROMITOVÁNO ({r['count']}×)")
+                else:
+                    print(f"  {G}{pw2}{RST}: OK")
+            pause()
+
+
+def menu_sslcheck(logger):
+    from core import sslcheck as _ssl
+    while True:
+        clr(); hdr(t("menu.sslcheck"))
+        print(f"  {C}[1]{RST} Zkontrolovat SSL/TLS certifikát")
+        print(f"  {C}[0]{RST} {t('app.back')}")
+        ch = prompt(t("app.choice")).strip()
+        if ch == "0":
+            break
+        elif ch == "1":
+            host = prompt("Hostname (např. example.com): ").strip()
+            if not host:
+                continue
+            port_s = prompt("Port [443]: ").strip()
+            port = int(port_s) if port_s.isdigit() else 443
+            info(f"Kontroluji {host}:{port}…")
+            r = _ssl.check(host, port)
+            sep()
+            for line in _ssl.format_report(r):
+                print(f"  {line}")
+            logger.log("ssl_check", "sslcheck", f"host={host}:{port} valid={r.get('valid')}")
+            pause()
+
+
+def menu_totp(logger):
+    from core import totp as _totp
+    vault: _totp.TOTPVault | None = None
+
+    def _ensure_vault():
+        nonlocal vault
+        if vault and vault._unlocked:
+            return True
+        vf = prompt("Soubor TOTP trezoru [totp_vault.enc]: ").strip().strip('"') or "totp_vault.enc"
+        pw = prompt("Heslo trezoru: ").strip()
+        v = _totp.TOTPVault(vf)
+        if not v.load(pw):
+            v.init(pw)
+            ok("Nový trezor vytvořen.")
+        vault = v
+        return True
+
+    while True:
+        clr(); hdr(t("menu.totp"))
+        print(f"  {C}[1]{RST} Otevřít / vytvořit trezor")
+        print(f"  {C}[2]{RST} Přidat TOTP záznam")
+        print(f"  {C}[3]{RST} Zobrazit kódy (live)")
+        print(f"  {C}[4]{RST} Smazat záznam")
+        print(f"  {C}[5]{RST} Vygenerovat nové tajemství")
+        print(f"  {C}[0]{RST} {t('app.back')}")
+        ch = prompt(t("app.choice")).strip()
+        if ch == "0":
+            break
+        elif ch == "1":
+            _ensure_vault()
+            if vault:
+                entries = vault.list_entries()
+                ok(f"Trezor odemčen, {len(entries)} záznamů.")
+            pause()
+        elif ch == "2":
+            if not _ensure_vault():
+                continue
+            name = prompt("Název (např. GitHub): ").strip()
+            secret = prompt("Base32 tajemství: ").strip()
+            issuer = prompt("Vydavatel (volitelné): ").strip()
+            if not name or not secret:
+                continue
+            try:
+                vault.add(name, secret, issuer=issuer or "")
+                ok(f"Přidán: {name}")
+                logger.log("totp_add", "totp", f"name={name}")
+            except Exception as exc:
+                err(str(exc))
+            pause()
+        elif ch == "3":
+            if not _ensure_vault():
+                continue
+            import time as _time
+            info("Zobrazuji kódy (Ctrl+C pro ukončení)…")
+            sep()
+            try:
+                while True:
+                    codes = vault.get_all_codes()
+                    rem = _totp.remaining_seconds()
+                    lines = [f"  {C}{e['name']}{RST}  {G}{e['code']}{RST}  [{rem}s]" for e in codes]
+                    print("\033[H\033[J", end="")
+                    hdr(t("menu.totp"))
+                    for l in lines:
+                        print(l)
+                    print(f"\n  {DIM}Ctrl+C pro ukončení{RST}")
+                    _time.sleep(1)
+            except KeyboardInterrupt:
+                pass
+            pause()
+        elif ch == "4":
+            if not _ensure_vault():
+                continue
+            entries = vault.list_entries()
+            for i, e in enumerate(entries):
+                print(f"  {C}[{i}]{RST} {e['name']} ({e.get('issuer','')})")
+            idx_s = prompt("Index záznamu ke smazání: ").strip()
+            if idx_s.isdigit() and int(idx_s) < len(entries):
+                vault.delete(entries[int(idx_s)]["id"])
+                ok("Smazáno.")
+                logger.log("totp_delete", "totp", f"name={entries[int(idx_s)]['name']}")
+            else:
+                err("Neplatný index.")
+            pause()
+        elif ch == "5":
+            secret = _totp.generate_secret()
+            ok(f"Nové tajemství: {G}{secret}{RST}")
+            pause()
+
+
+def menu_fileanalyze(logger):
+    from core import fileanalyzer as _fa
+    while True:
+        clr(); hdr(t("menu.fileanalyze"))
+        print(f"  {C}[1]{RST} Analyzovat soubor")
+        print(f"  {C}[0]{RST} {t('app.back')}")
+        ch = prompt(t("app.choice")).strip()
+        if ch == "0":
+            break
+        elif ch == "1":
+            src = prompt("Soubor: ").strip().strip('"')
+            if not src:
+                continue
+            info("Analyzuji…")
+            try:
+                r = _fa.analyze(src)
+                sep("═")
+                print(f"  Cesta:       {r['path']}")
+                print(f"  Velikost:    {r['size_bytes']} B")
+                print(f"  Typ (magic): {r['type_magic']}")
+                print(f"  Typ (ext):   {r['type_ext']}")
+                if r.get("extension_mismatch"):
+                    print(f"  {Y}⚠ Neshoda přípony!{RST}")
+                print(f"  Entropie:    {r['entropy']:.2f} b/B  ({r['entropy_label']})")
+                if r.get("pe"):
+                    pe = r["pe"]
+                    print(f"  PE arch:     {pe.get('machine','?')} | {pe.get('type','?')}")
+                if r.get("elf"):
+                    elf = r["elf"]
+                    print(f"  ELF:         {elf.get('bits','?')}-bit {elf.get('endian','?')} | {elf.get('type','?')}")
+                sep()
+                strings = r.get("strings", [])
+                if strings:
+                    print(f"  Stringy ({len(strings)}):")
+                    for s in strings[:30]:
+                        print(f"    {DIM}{s[:100]}{RST}")
+                    if len(strings) > 30:
+                        print(f"    {DIM}… a {len(strings)-30} dalších{RST}")
+                logger.log("file_analyze", "fileanalyze", f"src={src} type={r['type_magic']}")
+            except Exception as exc:
+                err(str(exc))
+            pause()
+
+
+def menu_loganalyze(logger):
+    from core import loganalyzer as _log
+    while True:
+        clr(); hdr(t("menu.loganalyze"))
+        print(f"  {C}[1]{RST} Analyzovat systémové logy")
+        print(f"  {C}[0]{RST} {t('app.back')}")
+        ch = prompt(t("app.choice")).strip()
+        if ch == "0":
+            break
+        elif ch == "1":
+            hours_s = prompt("Kolik hodin zpět [24]: ").strip()
+            hours = int(hours_s) if hours_s.isdigit() else 24
+            info(f"Sbírám logy za posledních {hours} hodin…")
+            try:
+                r = _log.analyze(hours=hours)
+                sep("═")
+                for line in _log.summary_lines(r):
+                    print(f"  {line}")
+                sep()
+                save_ch = prompt("Uložit výsledky? (Enter = přeskočit): ").strip().strip('"')
+                if save_ch:
+                    import json as _json
+                    open(save_ch, "w", encoding="utf-8").write(_json.dumps(r, indent=2, default=str))
+                    ok(f"Uloženo: {save_ch}")
+                logger.log("log_analyze", "loganalyze", f"hours={hours} events={r.get('total',0)}")
+            except Exception as exc:
+                err(str(exc))
+            pause()
+
+
+def menu_pwdmgr(logger):
+    from core import pwdmgr as _pm
+    vault: _pm.PasswordVault | None = None
+
+    def _open_vault():
+        nonlocal vault
+        vf = prompt("Soubor trezoru [passwords.enc]: ").strip().strip('"') or "passwords.enc"
+        pw = prompt("Hlavní heslo: ").strip()
+        v = _pm.PasswordVault(vf)
+        if not v.load(pw):
+            if prompt("Trezor neexistuje. Vytvořit? [a/n]: ").strip().lower() in ("a", "y", "ano", "yes"):
+                v.init(pw)
+                ok("Trezor vytvořen.")
+            else:
+                return False
+        vault = v
+        return True
+
+    while True:
+        clr(); hdr(t("menu.pwdmgr"))
+        unlocked = vault is not None and vault._unlocked
+        if unlocked:
+            print(f"  {G}Trezor odemčen{RST}")
+        print(f"  {C}[1]{RST} Otevřít trezor")
+        print(f"  {C}[2]{RST} Přidat heslo")
+        print(f"  {C}[3]{RST} Hledat / zobrazit")
+        print(f"  {C}[4]{RST} Upravit záznam")
+        print(f"  {C}[5]{RST} Smazat záznam")
+        print(f"  {C}[6]{RST} Exportovat (plaintext)")
+        print(f"  {C}[7]{RST} Změnit hlavní heslo")
+        print(f"  {C}[0]{RST} {t('app.back')}")
+        ch = prompt(t("app.choice")).strip()
+        if ch == "0":
+            break
+        elif ch == "1":
+            _open_vault()
+            pause()
+        elif ch == "2":
+            if not unlocked and not _open_vault():
+                continue
+            name = prompt("Název: ").strip()
+            user = prompt("Uživatel: ").strip()
+            pw2 = prompt("Heslo: ").strip()
+            url = prompt("URL (volitelné): ").strip()
+            notes = prompt("Poznámky (volitelné): ").strip()
+            if not name:
+                continue
+            try:
+                vault.add(name, user, pw2, url=url, notes=notes)
+                ok(f"Přidán: {name}")
+                logger.log("pwdmgr_add", "pwdmgr", f"name={name}")
+            except Exception as exc:
+                err(str(exc))
+            pause()
+        elif ch == "3":
+            if not unlocked and not _open_vault():
+                continue
+            q = prompt("Hledat (Enter = vše): ").strip()
+            entries = vault.search(q) if q else vault.list_entries()
+            sep()
+            for e in entries:
+                print(f"  {C}[{e['id']}]{RST} {e['name']}  {DIM}{e.get('username','')}  {e.get('url','')}{RST}")
+            if entries:
+                show_id = prompt("ID záznamu k zobrazení (Enter = přeskočit): ").strip()
+                if show_id.isdigit():
+                    entry = vault.get(int(show_id))
+                    if entry:
+                        sep()
+                        for k, v in entry.items():
+                            print(f"  {C}{k}{RST}: {v}")
+            pause()
+        elif ch == "4":
+            if not unlocked and not _open_vault():
+                continue
+            eid = prompt("ID záznamu: ").strip()
+            if not eid.isdigit():
+                continue
+            entry = vault.get(int(eid))
+            if not entry:
+                err("Nenalezeno."); pause(); continue
+            print(f"  Úprava: {entry['name']} (Enter = ponechat)")
+            kw_upd = {}
+            for field in ("name", "username", "password", "url", "notes"):
+                val = prompt(f"  {field} [{entry.get(field,'')}]: ").strip()
+                if val:
+                    kw_upd[field] = val
+            if kw_upd:
+                vault.update(int(eid), **kw_upd)
+                ok("Aktualizováno.")
+                logger.log("pwdmgr_update", "pwdmgr", f"id={eid}")
+            pause()
+        elif ch == "5":
+            if not unlocked and not _open_vault():
+                continue
+            eid = prompt("ID záznamu ke smazání: ").strip()
+            if eid.isdigit():
+                vault.delete(int(eid))
+                ok("Smazáno.")
+                logger.log("pwdmgr_delete", "pwdmgr", f"id={eid}")
+            pause()
+        elif ch == "6":
+            if not unlocked and not _open_vault():
+                continue
+            out = prompt("Výstupní soubor: ").strip().strip('"')
+            if not out:
+                continue
+            try:
+                vault.export_plaintext(out)
+                ok(f"Exportováno → {out}")
+                logger.log("pwdmgr_export", "pwdmgr", f"out={out}")
+            except Exception as exc:
+                err(str(exc))
+            pause()
+        elif ch == "7":
+            if not unlocked and not _open_vault():
+                continue
+            old_pw = prompt("Stávající heslo: ").strip()
+            new_pw = prompt("Nové heslo: ").strip()
+            new_pw2 = prompt("Nové heslo (potvrzení): ").strip()
+            if new_pw != new_pw2:
+                err("Hesla se neshodují."); pause(); continue
+            try:
+                vault.change_master(old_pw, new_pw)
+                ok("Hlavní heslo změněno.")
+                logger.log("pwdmgr_chpw", "pwdmgr", "master password changed")
+            except Exception as exc:
+                err(str(exc))
+            pause()
+
+
+def menu_backup(logger):
+    from core import backup as _bk
+    while True:
+        clr(); hdr(t("menu.backup"))
+        print(f"  {C}[1]{RST} Vytvořit zálohu (zašifrovat)")
+        print(f"  {C}[2]{RST} Obnovit zálohu (dešifrovat)")
+        print(f"  {C}[3]{RST} Zobrazit dostupné zálohy")
+        print(f"  {C}[4]{RST} Smazat zálohu")
+        print(f"  {C}[0]{RST} {t('app.back')}")
+        ch = prompt(t("app.choice")).strip()
+        if ch == "0":
+            break
+        elif ch == "1":
+            srcs_raw = prompt("Zdrojové soubory/složky (oddělené čárkou): ").strip()
+            if not srcs_raw:
+                continue
+            srcs = [s.strip().strip('"') for s in srcs_raw.split(",") if s.strip()]
+            dest = prompt("Cílová složka pro zálohy [backups/]: ").strip().strip('"') or "backups/"
+            pw = prompt("Heslo zálohy: ").strip()
+            if not pw:
+                err("Heslo je povinné."); pause(); continue
+            algo_ch = prompt("Algoritmus [1=AES-256-GCM, 2=ChaCha20, 3=AES-256-CBC] [1]: ").strip()
+            algo_map = {"1": "AES-256-GCM", "2": "ChaCha20-Poly1305", "3": "AES-256-CBC"}
+            algo = algo_map.get(algo_ch, "AES-256-GCM")
+            info("Zálohování…")
+            def _bprog(done, total, name):
+                print(f"\r  {DIM}[{done}/{total}] {name[:50]}{RST}  ", end="", flush=True)
+            r = _bk.create(srcs, dest, pw, algo=algo, progress_cb=_bprog, logger=logger)
+            print()
+            sep("═")
+            if r["ok"]:
+                ok(f"Záloha vytvořena: {r['backup_dir']}")
+                print(f"  Zašifrováno: {r['encrypted']} souborů")
+                if r["failed"]:
+                    print(f"  {Y}Chyby: {r['failed']}{RST}")
+            else:
+                err("Záloha selhala.")
+            pause()
+        elif ch == "2":
+            bdir = prompt("Složka zálohy: ").strip().strip('"')
+            if not bdir:
+                continue
+            dest = prompt("Cíl obnovy: ").strip().strip('"')
+            if not dest:
+                continue
+            pw = prompt("Heslo zálohy: ").strip()
+            verify_ch = prompt("Ověřit integritu SHA-256? [a/n]: ").strip().lower()
+            verify = verify_ch in ("a", "y", "ano", "yes", "")
+            info("Obnovuji…")
+            def _rprog(done, total, name):
+                print(f"\r  {DIM}[{done}/{total}] {name[:50]}{RST}  ", end="", flush=True)
+            r = _bk.restore(bdir, dest, pw, verify=verify, progress_cb=_rprog, logger=logger)
+            print()
+            sep("═")
+            if r["ok"]:
+                ok(f"Obnoveno {r['restored']} souborů → {r['dest']}")
+                if r.get("hash_mismatch"):
+                    print(f"  {Y}Neshoda hash ({len(r['hash_mismatch'])} souborů):{RST}")
+                    for f in r["hash_mismatch"][:5]:
+                        print(f"    {DIM}{f}{RST}")
+            else:
+                err(f"Obnova selhala: {r.get('error','?')}")
+                for e in r.get("errors", [])[:5]:
+                    print(f"    {DIM}{e}{RST}")
+            pause()
+        elif ch == "3":
+            dest = prompt("Složka se zálohami [backups/]: ").strip().strip('"') or "backups/"
+            backups = _bk.list_backups(dest)
+            sep()
+            if not backups:
+                info("Žádné zálohy nenalezeny.")
+            else:
+                for b in backups:
+                    print(f"  {C}{b['ts']}{RST}  {b['files']} souborů  {b['size_mb']} MB  ({b['algo']})")
+                    print(f"    {DIM}{b['dir']}{RST}")
+            pause()
+        elif ch == "4":
+            bdir = prompt("Složka zálohy ke smazání: ").strip().strip('"')
+            if not bdir:
+                continue
+            confirm = prompt(f"Opravdu smazat {bdir}? [ano/n]: ").strip().lower()
+            if confirm in ("ano", "yes", "a", "y"):
+                r = _bk.delete_backup(bdir)
+                if r["ok"]:
+                    ok("Záloha smazána.")
+                    logger.log("backup_delete", "backup", f"dir={bdir}")
+                else:
+                    err(r.get("error", "?"))
+            pause()
+
+
+def menu_startupaudit(logger):
+    from core import startupaudit as _sa
+    import threading
+
+    _RISK_COLOR = {0: G, 1: Y, 2: Y, 3: R}
+    _RISK_LABEL = {0: 'OK', 1: 'LOW', 2: 'MED', 3: 'HIGH'}
+
+    def _print_entry(e, i: int):
+        rc = _RISK_COLOR[e['risk']]
+        rl = _RISK_LABEL[e['risk']]
+        flags = ', '.join(e['flags']) if e['flags'] else ''
+        enabled = '' if e['enabled'] else f'  {DIM}[disabled]{RST}'
+        flag_str = f'  {Y}{flags}{RST}' if flags else ''
+        print(f"  {DIM}[{i:>3}]{RST} {rc}[{rl}]{RST}  {C}{e['source']}{RST}  {e['name']}")
+        print(f"         {DIM}{e['command'][:90]}{RST}{enabled}{flag_str}")
+
+    while True:
+        clr(); hdr(t("menu.startupaudit"))
+        print(f"  {C}[1]{RST} Spustit scan")
+        print(f"  {C}[2]{RST} Spustit scan + zobrazit jen rizikové")
+        print(f"  {C}[3]{RST} Export výsledků do souboru")
+        print(f"  {C}[0]{RST} {t('app.back')}")
+        ch = prompt(t("app.choice")).strip()
+        if ch == "0":
+            break
+
+        if ch in ("1", "2", "3"):
+            info("Skenuji startup / persistence lokace…")
+            entries = _sa.scan()
+            sm = _sa.summary(entries)
+            sep("═")
+            print(f"  Celkem: {sm['total']}  "
+                  f"{R}HIGH:{sm['high']}{RST}  "
+                  f"{Y}MED:{sm['medium']}  LOW:{sm['low']}{RST}  "
+                  f"{G}OK:{sm['ok']}{RST}")
+            sep()
+
+            if ch == "2":
+                shown = [e for e in entries if e['risk'] >= 2]
+                if not shown:
+                    ok("Žádné středně ani vysoce rizikové položky nenalezeny.")
+                else:
+                    for i, e in enumerate(shown):
+                        _print_entry(e, i)
+            elif ch == "3":
+                out = prompt("Výstupní soubor (Enter = startup_report.txt): ").strip().strip('"') or "startup_report.txt"
+                lines = []
+                for e in entries:
+                    rl = _RISK_LABEL[e['risk']]
+                    flags = ', '.join(e['flags']) if e['flags'] else 'none'
+                    en = 'enabled' if e['enabled'] else 'disabled'
+                    lines.append(f"[{rl}] {e['source']} | {e['name']} | {en}")
+                    lines.append(f"      CMD: {e['command']}")
+                    lines.append(f"      FLAGS: {flags}")
+                    lines.append("")
+                try:
+                    Path(out).write_text("\n".join(lines), encoding="utf-8")
+                    ok(f"Export uložen: {out}")
+                    logger.log("startup_audit_export", "startupaudit", f"out={out} total={sm['total']}")
+                except Exception as exc:
+                    err(str(exc))
+            else:
+                for i, e in enumerate(entries):
+                    _print_entry(e, i)
+
+            logger.log("startup_audit", "startupaudit",
+                       f"total={sm['total']} high={sm['high']} medium={sm['medium']}")
+            pause()
+
+
+def menu_sys_dashboard(logger):
+    from core import sysmonitor as _sm
+    import time as _time
+    info("Načítám dashboard… (Ctrl+C pro ukončení)")
+    try:
+        prev_net = None
+        while True:
+            s = _sm.snapshot()
+            clr()
+            hdr(t("menu.sys_dashboard"))
+
+            # CPU
+            cpu_bar = "█" * int(s["cpu_percent"] / 5) + "░" * (20 - int(s["cpu_percent"] / 5))
+            freq = f"  {s['cpu_freq_mhz']} MHz" if s["cpu_freq_mhz"] else ""
+            print(f"  {C}CPU{RST}  [{cpu_bar}] {s['cpu_percent']:5.1f}%{freq}  ({s['cpu_count']} jader)")
+
+            # Per-core
+            cores = s["cpu_per_core"]
+            core_line = "  " + "  ".join(
+                f"{G if c < 70 else Y if c < 90 else R}{c:3.0f}%{RST}" for c in cores
+            )
+            print(core_line)
+
+            # RAM
+            mem_bar = "█" * int(s["mem_percent"] / 5) + "░" * (20 - int(s["mem_percent"] / 5))
+            print(f"  {C}RAM{RST}  [{mem_bar}] {s['mem_percent']:5.1f}%  "
+                  f"{_sm.fmt_bytes(s['mem_used'])} / {_sm.fmt_bytes(s['mem_total'])}")
+            if s["swap_percent"] > 0:
+                print(f"  {C}SWP{RST}  {s['swap_percent']:.1f}%  {_sm.fmt_bytes(s['swap_used'])}")
+
+            # Disks
+            sep()
+            for d in s["disks"]:
+                disk_bar = "█" * int(d["percent"] / 5) + "░" * (20 - int(d["percent"] / 5))
+                col = G if d["percent"] < 70 else Y if d["percent"] < 90 else R
+                print(f"  {C}{d['mount']:<12}{RST} [{col}{disk_bar}{RST}] {d['percent']:5.1f}%  "
+                      f"{_sm.fmt_bytes(d['free'])} volných")
+
+            # Network
+            sep()
+            if prev_net:
+                sent_s = (s["net_sent"] - prev_net[0])
+                recv_s = (s["net_recv"] - prev_net[1])
+                print(f"  {C}NET{RST}  ↑ {_sm.fmt_bytes(sent_s)}/s   ↓ {_sm.fmt_bytes(recv_s)}/s")
+            else:
+                print(f"  {C}NET{RST}  ↑ {_sm.fmt_bytes(s['net_sent'])} sent   ↓ {_sm.fmt_bytes(s['net_recv'])} recv")
+            prev_net = (s["net_sent"], s["net_recv"])
+
+            print(f"\n  {DIM}Uptime: {_sm.fmt_uptime(s['uptime_s'])}   Ctrl+C = zpět{RST}")
+            _time.sleep(1)
+    except KeyboardInterrupt:
+        pass
+
+
+def menu_port_monitor(logger):
+    from core import sysmonitor as _sm
+    import time as _time
+
+    while True:
+        clr(); hdr(t("menu.port_monitor"))
+        print(f"  {C}[1]{RST} Zobrazit všechna spojení")
+        print(f"  {C}[2]{RST} Pouze LISTEN porty")
+        print(f"  {C}[3]{RST} Live refresh (Ctrl+C = stop)")
+        print(f"  {C}[0]{RST} {t('app.back')}")
+        ch = prompt(t("app.choice")).strip()
+        if ch == "0":
+            break
+        elif ch in ("1", "2"):
+            conns = _sm.list_ports()
+            if ch == "2":
+                conns = [c for c in conns if c["status"] == "LISTEN"]
+            sep()
+            if not conns:
+                info("Žádná spojení nenalezena.")
+            else:
+                print(f"  {DIM}{'PROTO':<5} {'LOCAL':<25} {'REMOTE':<25} {'STATUS':<12} {'PID':<6} PROCESS{RST}")
+                sep("-")
+                for c in conns:
+                    sc = G if c["status"] == "LISTEN" else C if c["status"] == "ESTABLISHED" else DIM
+                    print(f"  {c['proto']:<5} {c['local']:<25} {c['remote']:<25} "
+                          f"{sc}{c['status']:<12}{RST} {c['pid']:<6} {c['process']}")
+            pause()
+        elif ch == "3":
+            info("Live monitor portů… (Ctrl+C = stop)")
+            try:
+                while True:
+                    conns = [c for c in _sm.list_ports() if c["status"] == "LISTEN"]
+                    clr(); hdr(t("menu.port_monitor"))
+                    print(f"  {DIM}{'PORT':<25} {'PID':<6} PROCESS{RST}")
+                    sep("-")
+                    for c in conns:
+                        print(f"  {G}{c['local']:<25}{RST} {c['pid']:<6} {c['process']}")
+                    print(f"\n  {DIM}Ctrl+C = zpět{RST}")
+                    _time.sleep(2)
+            except KeyboardInterrupt:
+                pass
+
+
+def menu_temp_monitor(logger):
+    from core import sysmonitor as _sm
+    import time as _time
+
+    while True:
+        clr(); hdr(t("menu.temp_monitor"))
+        print(f"  {C}[1]{RST} Zobrazit teploty")
+        print(f"  {C}[2]{RST} Live monitor (Ctrl+C = stop)")
+        print(f"  {C}[0]{RST} {t('app.back')}")
+        ch = prompt(t("app.choice")).strip()
+        if ch == "0":
+            break
+
+        def _show_temps():
+            temps = _sm.temperatures()
+            if not temps:
+                print(f"  {Y}Teploty nejsou dostupné na tomto systému.{RST}")
+                print(f"  {DIM}(macOS vyžaduje root, nebo nainstalujte osx-cpu-temp){RST}")
+                return
+            for sensor, entries in temps.items():
+                print(f"  {C}{sensor}{RST}")
+                for e in entries:
+                    t_val = e["current"]
+                    col = G if t_val < 60 else Y if t_val < 80 else R
+                    hi = f"  high={e['high']}°" if e["high"] else ""
+                    crit = f"  crit={e['critical']}°" if e["critical"] else ""
+                    bar = "█" * int(t_val / 5) + "░" * (20 - min(20, int(t_val / 5)))
+                    print(f"    {e['label']:<20} [{col}{bar}{RST}] {col}{t_val:.1f}°C{RST}{hi}{crit}")
+
+        if ch == "1":
+            sep()
+            _show_temps()
+            pause()
+        elif ch == "2":
+            try:
+                while True:
+                    clr(); hdr(t("menu.temp_monitor"))
+                    sep()
+                    _show_temps()
+                    print(f"\n  {DIM}Ctrl+C = zpět{RST}")
+                    _time.sleep(2)
+            except KeyboardInterrupt:
+                pass
+
+
+def menu_battery_info(logger):
+    from core import sysmonitor as _sm
+
+    clr(); hdr(t("menu.battery_info"))
+    b = _sm.battery()
+    sep()
+    if b is None:
+        info("Baterie nebyla nalezena (desktop nebo nepodporovaný systém).")
+    else:
+        pct = b["percent"]
+        col = G if pct > 50 else Y if pct > 20 else R
+        bar = "█" * int(pct / 5) + "░" * (20 - int(pct / 5))
+        print(f"  Nabití:   [{col}{bar}{RST}] {col}{pct}%{RST}")
+        status = f"{G}Nabíjí se{RST}" if b["plugged"] else f"{Y}Na baterii{RST}"
+        print(f"  Stav:     {status}")
+        if b["secs_left"] is not None and not b["plugged"]:
+            h, m = divmod(int(b["secs_left"]) // 60, 60)
+            print(f"  Zbývá:    {h}h {m:02d}m")
+    pause()
+
+
+def menu_disk_analyzer(logger):
+    from core import diskanalyzer as _da
+
+    while True:
+        clr(); hdr(t("menu.disk_analyzer"))
+        print(f"  {C}[1]{RST} Analyzovat složku")
+        print(f"  {C}[0]{RST} {t('app.back')}")
+        ch = prompt(t("app.choice")).strip()
+        if ch == "0":
+            break
+        elif ch == "1":
+            root = prompt("Složka [.]: ").strip().strip('"') or "."
+            top_s = prompt("Top N položek [20]: ").strip()
+            top_n = int(top_s) if top_s.isdigit() else 20
+            info(f"Analyzuji {root}…")
+            scanned_box = [0]
+            def _prog(n, path):
+                scanned_box[0] = n
+                print(f"\r  {DIM}Prošlo souborů: {n}  {path[-50:]}{RST}  ", end="", flush=True)
+            try:
+                r = _da.analyze(root, top_n=top_n, progress_cb=_prog)
+                print()
+                sep("═")
+                print(f"  Celkem:  {_da.fmt_size(r['total_bytes'])}  ({r['file_count']} souborů)")
+
+                sep()
+                print(f"  {C}TOP SLOŽKY{RST}")
+                total = r["total_bytes"] or 1
+                for path, sz in r["top_folders"][:top_n]:
+                    pct = sz / total * 100
+                    bar = _da.bar(pct, 15)
+                    print(f"  {bar} {pct:5.1f}%  {_da.fmt_size(sz):>10}  {DIM}{path}{RST}")
+
+                sep()
+                print(f"  {C}TOP SOUBORY{RST}")
+                for sz, path in r["top_files"][:top_n]:
+                    pct = sz / total * 100
+                    print(f"  {pct:5.1f}%  {_da.fmt_size(sz):>10}  {DIM}{path}{RST}")
+
+                sep()
+                print(f"  {C}PODLE PŘÍPONY{RST}")
+                for ext, sz in r["ext_breakdown"][:15]:
+                    pct = sz / total * 100
+                    bar = _da.bar(pct, 15)
+                    print(f"  {bar} {pct:5.1f}%  {_da.fmt_size(sz):>10}  {ext}")
+
+                logger.log("disk_analyze", "diskanalyzer", f"root={root} total={_da.fmt_size(r['total_bytes'])}")
+            except Exception as exc:
+                err(str(exc))
+            pause()
+
+
+def menu_cam_audit(logger):
+    from core import camaudit as _cam
+
+    clr(); hdr(t("menu.cam_audit"))
+    info("Kontroluji přístupy ke kameře a mikrofonu…")
+    try:
+        result = _cam.audit()
+        sep("═")
+
+        for device_name, key in [("KAMERA", "camera"), ("MIKROFON", "microphone")]:
+            entries = result.get(key, [])
+            print(f"\n  {C}{device_name}{RST}  ({len(entries)} záznamů)")
+            if not entries:
+                print(f"    {DIM}Žádné záznamy nenalezeny.{RST}")
+            else:
+                for e in entries:
+                    col = G if e.get("allowed") else R
+                    status = "POVOLEN" if e.get("allowed") else "ZAMÍTNUT"
+                    pid_str = f"  PID {e['pid']}" if "pid" in e else ""
+                    device_str = f"  {e['device']}" if "device" in e else ""
+                    print(f"    {col}[{status}]{RST}  {e['app']}{pid_str}{device_str}")
+
+        import platform as _pl
+        if _pl.system() == "Darwin":
+            print(f"\n  {DIM}Poznámka: plný přístup k TCC databázi může vyžadovat spuštění jako root.{RST}")
+
+        logger.log("cam_audit", "camaudit", f"camera={len(result.get('camera',[]))} mic={len(result.get('microphone',[]))}")
+    except Exception as exc:
+        err(str(exc))
+    pause()
+
+
+def menu_code_fmt(logger):
+    from core import codeformatter as _cf
+
+    while True:
+        clr(); hdr(t("menu.code_fmt"))
+        print(f"  {C}[1]{RST} Formátovat soubor (auto-detect)")
+        print(f"  {C}[2]{RST} Formátovat JSON")
+        print(f"  {C}[3]{RST} Formátovat XML")
+        print(f"  {C}[4]{RST} Formátovat YAML")
+        print(f"  {C}[5]{RST} Formátovat vstup z klávesnice")
+        print(f"  {C}[0]{RST} {t('app.back')}")
+        ch = prompt(t("app.choice")).strip()
+        if ch == "0":
+            break
+
+        def _do_fmt(text: str, mode: str = "auto", src_name: str = ""):
+            if mode == "auto":
+                out, detected, errs = _cf.fmt_auto(text)
+            elif mode == "json":
+                out, errs = _cf.fmt_json(text)
+                detected = "json"
+            elif mode == "xml":
+                out, errs = _cf.fmt_xml(text)
+                detected = "xml"
+            else:
+                out, errs = _cf.fmt_yaml(text)
+                detected = "yaml"
+            sep()
+            if errs:
+                for e2 in errs:
+                    err(e2)
+            else:
+                ok(f"Formát: {detected.upper()}")
+                save_to = prompt("Uložit do souboru (Enter = zobrazit): ").strip().strip('"')
+                if save_to:
+                    try:
+                        open(save_to, "w", encoding="utf-8").write(out)
+                        ok(f"Uloženo → {save_to}")
+                    except Exception as exc2:
+                        err(str(exc2))
+                else:
+                    print()
+                    for line in out.splitlines()[:80]:
+                        print(f"  {line}")
+                    if out.count("\n") > 80:
+                        print(f"  {DIM}… zkráceno{RST}")
+            logger.log("code_fmt", "codeformatter", f"fmt={detected} src={src_name}")
+            pause()
+
+        mode_map = {"1": "auto", "2": "json", "3": "xml", "4": "yaml"}
+
+        if ch in ("1", "2", "3", "4"):
+            src = prompt("Soubor: ").strip().strip('"')
+            if not src:
+                continue
+            try:
+                text = open(src, encoding="utf-8", errors="replace").read()
+                _do_fmt(text, mode_map[ch], src)
+            except Exception as exc:
+                err(str(exc)); pause()
+        elif ch == "5":
+            print(f"  {DIM}Vlož text, ukonči prázdným řádkem:{RST}")
+            lines = []
+            while True:
+                try:
+                    ln = input()
+                    if ln == "":
+                        break
+                    lines.append(ln)
+                except (EOFError, KeyboardInterrupt):
+                    break
+            if lines:
+                _do_fmt("\n".join(lines), "auto", "<stdin>")
 
 
 # ── ENTRY POINT ─────────────────────────────────────────────

@@ -229,6 +229,17 @@ class ScoutSession:
         self.file_hashes:  dict[str, str] = {}
         self.risk_flags:   list[dict] = []
 
+        # Persistence snapshots (scheduled tasks + services before/after)
+        self.persistence_events: list[dict] = []
+        self._pre_tasks:    dict[str, str] = {}
+        self._pre_services: dict[str, str] = {}
+
+        # VirusTotal results: sha256 → {malicious, suspicious, undetected, harmless, not_found}
+        self.vt_results: dict[str, dict] = {}
+
+        # Filled by stop() after auto-export
+        self.last_html_export: str | None = None
+
         # Control flags
         self.is_paused:             bool = False
         self._auto_stop_requested:  bool = False
@@ -284,6 +295,10 @@ class ScoutSession:
             scheduled.append(p)
         self.watch_paths = scheduled
 
+        # Persistence baseline — must be taken BEFORE the exe launches
+        self._pre_tasks    = self._snapshot_scheduled_tasks()
+        self._pre_services = self._snapshot_services()
+
         self.is_running = True
         self.start_time = time.time()
 
@@ -324,12 +339,18 @@ class ScoutSession:
             self._observer.stop()
             self._observer.join()
         self._hash_accessed_files()
+        self._diff_persistence()
         self.risk_flags = self._analyze_risks()
         self.logger.log(
             "scout_stop", "scout",
             f"session_id={self.session_id} risk_score={self.get_risk_score()}",
         )
         self._save_session()
+        # Auto-export HTML immediately after stop
+        try:
+            self.last_html_export = self.export_html()
+        except Exception:
+            pass
 
     def pause(self) -> None:
         """Pause all monitors without stopping the session."""
@@ -956,7 +977,195 @@ class ScoutSession:
         _WEIGHTS = {"CRITICAL": 40, "HIGH": 20, "MEDIUM": 10, "LOW": 4, "INFO": 1}
         return min(sum(_WEIGHTS.get(f["severity"], 0) for f in self.risk_flags), 100)
 
-    # ── persistence ──────────────────────────────────────────────────────────
+    # ── persistence snapshot / diff ──────────────────────────────────────────
+
+    def _snapshot_scheduled_tasks(self) -> dict[str, str]:
+        if os.name != "nt":
+            return {}
+        try:
+            r = subprocess.run(
+                ["schtasks", "/query", "/fo", "CSV", "/v"],
+                capture_output=True, text=True, timeout=15, errors="replace"
+            )
+            tasks: dict[str, str] = {}
+            for line in r.stdout.splitlines():
+                line = line.strip().strip('"')
+                if not line or line.startswith("TaskName") or line.startswith("HostName"):
+                    continue
+                parts = line.split('","')
+                if parts:
+                    tasks[parts[0].strip('"')] = line
+            return tasks
+        except Exception:
+            return {}
+
+    def _snapshot_services(self) -> dict[str, str]:
+        if os.name != "nt":
+            return {}
+        try:
+            r = subprocess.run(
+                ["sc", "query", "state=", "all"],
+                capture_output=True, text=True, timeout=15, errors="replace"
+            )
+            services: dict[str, str] = {}
+            cur = ""
+            for line in r.stdout.splitlines():
+                line = line.strip()
+                if line.startswith("SERVICE_NAME:"):
+                    cur = line.split(":", 1)[1].strip()
+                elif line.startswith("STATE") and cur:
+                    services[cur] = line
+                    cur = ""
+            return services
+        except Exception:
+            return {}
+
+    def _diff_persistence(self) -> None:
+        """Diff scheduled tasks and services against the pre-launch baseline."""
+        ts = _ts()
+        post_tasks    = self._snapshot_scheduled_tasks()
+        post_services = self._snapshot_services()
+
+        for name, detail in post_tasks.items():
+            if name not in self._pre_tasks:
+                self.persistence_events.append(
+                    {"type": "TASK_NEW", "name": name, "detail": detail, "time": ts, "category": "persistence"}
+                )
+        for name in self._pre_tasks:
+            if name not in post_tasks:
+                self.persistence_events.append(
+                    {"type": "TASK_DEL", "name": name, "detail": self._pre_tasks[name], "time": ts, "category": "persistence"}
+                )
+        for name, detail in post_services.items():
+            if name not in self._pre_services:
+                self.persistence_events.append(
+                    {"type": "SVC_NEW", "name": name, "detail": detail, "time": ts, "category": "persistence"}
+                )
+        for name in self._pre_services:
+            if name not in post_services:
+                self.persistence_events.append(
+                    {"type": "SVC_DEL", "name": name, "detail": self._pre_services[name], "time": ts, "category": "persistence"}
+                )
+
+        # Raise risk flags for new persistence
+        for ev in self.persistence_events:
+            if ev["type"] in ("TASK_NEW", "SVC_NEW"):
+                self.risk_flags.append({
+                    "severity": "HIGH", "category": "Persistence",
+                    "desc": f"Nový {'scheduled task' if ev['type']=='TASK_NEW' else 'service'}: {ev['name']}",
+                    "time": ts,
+                })
+
+    # ── behavioral verdict ───────────────────────────────────────────────────
+
+    def get_verdict(self) -> str:
+        """One-line human-readable summary of what the app did."""
+        parts: list[str] = []
+
+        run_mods = [e for e in self.registry_events
+                    if "\\run" in e.get("path", "").lower()
+                    and e.get("type") in ("REG_ADD", "REG_MODIFY")]
+        if run_mods:
+            parts.append(f"modifikoval {len(run_mods)} Run klíč{'ů' if len(run_mods) > 1 else ''}")
+
+        ext_conns = [e for e in self.network_events
+                     if e.get("remote_ip") and not any(
+                         e["remote_ip"].startswith(p)
+                         for p in ("127.", "192.168.", "10.", "::1", "0.0.0.0")
+                     )]
+        if ext_conns:
+            hosts = list(dict.fromkeys(
+                e.get("remote_host", e.get("remote_ip", "?")) for e in ext_conns
+            ))
+            sample = ", ".join(hosts[:3]) + ("…" if len(hosts) > 3 else "")
+            parts.append(f"připojil se na {len(ext_conns)} external {'spojení' if len(ext_conns) > 1 else 'spojení'} ({sample})")
+
+        children = [e for e in self.process_events if e.get("type") == "SPAWN"]
+        if children:
+            names = list(dict.fromkeys(e.get("path", "") for e in children))
+            sample = ", ".join(names[:3]) + ("…" if len(names) > 3 else "")
+            parts.append(f"spustil {len(children)} child {'procesů' if len(children) > 1 else 'proces'} ({sample})")
+
+        appdata  = os.environ.get("APPDATA", "").lower()
+        lappdata = os.environ.get("LOCALAPPDATA", "").lower()
+        sys32    = os.path.join(os.environ.get("SystemRoot", "C:\\Windows"), "System32").lower()
+        notable: list[str] = []
+        for e in self.file_events:
+            p = e.get("path", "").lower()
+            if sys32 and sys32 in p:     notable.append("System32")
+            elif appdata  and p.startswith(appdata):   notable.append("%APPDATA%")
+            elif lappdata and p.startswith(lappdata):  notable.append("%LOCALAPPDATA%")
+        if notable:
+            parts.append("zapsal do " + ", ".join(dict.fromkeys(notable)))
+
+        new_tasks = [e for e in self.persistence_events if e["type"] == "TASK_NEW"]
+        new_svcs  = [e for e in self.persistence_events if e["type"] == "SVC_NEW"]
+        if new_tasks:
+            parts.append(f"přidal {len(new_tasks)} scheduled task")
+        if new_svcs:
+            parts.append(f"zaregistroval {len(new_svcs)} service")
+
+        if self.dns_events:
+            hosts = list(dict.fromkeys(e.get("hostname", "") for e in self.dns_events))
+            sample = ", ".join(hosts[:3]) + ("…" if len(hosts) > 3 else "")
+            parts.append(f"DNS: {sample}")
+
+        if not parts:
+            return "Žádná podezřelá aktivita detekována."
+        return "; ".join(parts) + "."
+
+    # ── VirusTotal ───────────────────────────────────────────────────────────
+
+    def check_virustotal(self, api_key: str) -> dict[str, dict]:
+        """Submit unique file hashes to VirusTotal API v3.
+
+        Respects the free-tier rate limit (4 req/min).
+        Results are stored in self.vt_results and also returned.
+        """
+        import urllib.request
+        import urllib.error
+        import json as _json
+        import time as _time
+
+        unique_hashes = list({v for v in self.file_hashes.values() if v})
+        req_count = 0
+        for sha in unique_hashes[:100]:
+            if sha in self.vt_results:
+                continue
+            if req_count > 0 and req_count % 4 == 0:
+                _time.sleep(61)
+            req_count += 1
+            try:
+                req = urllib.request.Request(
+                    f"https://www.virustotal.com/api/v3/files/{sha}",
+                    headers={"x-apikey": api_key, "Accept": "application/json"},
+                )
+                with urllib.request.urlopen(req, timeout=15) as resp:
+                    data = _json.loads(resp.read())
+                    stats = (data.get("data", {})
+                             .get("attributes", {})
+                             .get("last_analysis_stats", {}))
+                    self.vt_results[sha] = {
+                        "malicious":  stats.get("malicious", 0),
+                        "suspicious": stats.get("suspicious", 0),
+                        "undetected": stats.get("undetected", 0),
+                        "harmless":   stats.get("harmless", 0),
+                        "not_found":  False,
+                    }
+            except urllib.error.HTTPError as e:
+                if e.code == 404:
+                    self.vt_results[sha] = {
+                        "malicious": 0, "suspicious": 0,
+                        "undetected": 0, "harmless": 0, "not_found": True,
+                    }
+                elif e.code == 429:
+                    _time.sleep(61)
+            except Exception:
+                pass
+
+        return self.vt_results
+
+    # ── persistence (session data) ───────────────────────────────────────────
 
     def get_summary(self) -> dict:
         duration = (time.time() - self.start_time) if self.start_time else 0
@@ -975,6 +1184,9 @@ class ScoutSession:
             "pipe_events":        len(self.pipe_events),
             "risk_flags":         len(self.risk_flags),
             "risk_score":         self.get_risk_score(),
+            "persistence_events": len(self.persistence_events),
+            "vt_checked":         len(self.vt_results),
+            "verdict":            self.get_verdict(),
             "total_events":       (len(self.file_access_events) + len(self.file_events) +
                                    len(self.registry_events) + len(self.network_events) +
                                    len(self.process_events) + len(self.download_events) +
@@ -1002,6 +1214,9 @@ class ScoutSession:
             "dll_events":         self.dll_events,
             "dns_events":         self.dns_events,
             "pipe_events":        self.pipe_events,
+            "persistence_events": self.persistence_events,
+            "vt_results":         self.vt_results,
+            "verdict":            self.get_verdict(),
         }
 
     def _save_session(self) -> None:
@@ -1049,23 +1264,43 @@ class ScoutSession:
                 b /= 1024
             return f"{b:.1f} TB"
 
+        # VT lookup helper
+        _vt = data.get("vt_results", {})
+        def vt_badge(sha: str) -> str:
+            if not sha or sha not in _vt:
+                return ""
+            r = _vt[sha]
+            if r.get("not_found"):
+                return "<span class='badge badge-info'>VT:?</span>"
+            mal = r.get("malicious", 0)
+            sus = r.get("suspicious", 0)
+            if mal:
+                return f"<span class='badge badge-critical'>VT:{mal}⚠</span>"
+            if sus:
+                return f"<span class='badge badge-high'>VT:{sus}!</span>"
+            return "<span class='badge badge-low'>VT:OK</span>"
+
         # --- row builders ---
         def r_fopen(ev):
-            sha = esc(ev.get("sha256",""))
+            path = ev.get("path","")
+            sha  = esc(data.get("file_hashes",{}).get(path, ev.get("sha256","")))
             sha_disp = f'<span class="trunc" title="{sha}">{sha[:12]}…</span>' if sha else ""
             return (f"<tr><td>{esc(ev.get('time',''))}</td>"
                     f"<td>{esc(ev.get('pid',''))}</td>"
-                    f"<td><span class='trunc' title='{esc(ev.get('path',''))}'>{esc(ev.get('path',''))}</span></td>"
-                    f"<td>{sha_disp}</td></tr>")
+                    f"<td><span class='trunc' title='{esc(path)}'>{esc(path)}</span></td>"
+                    f"<td>{sha_disp}</td>"
+                    f"<td>{vt_badge(sha)}</td></tr>")
 
         def r_files(ev):
-            sha = esc(ev.get("sha256",""))
+            path = ev.get("path","")
+            sha  = esc(data.get("file_hashes",{}).get(path, ev.get("sha256","")))
             sha_disp = f'<span class="trunc" title="{sha}">{sha[:12]}…</span>' if sha else ""
             return (f"<tr><td>{esc(ev.get('time',''))}</td>"
                     f"<td>{esc(ev.get('type',''))}</td>"
-                    f"<td><span class='trunc' title='{esc(ev.get('path',''))}'>{esc(ev.get('path',''))}</span></td>"
+                    f"<td><span class='trunc' title='{esc(path)}'>{esc(path)}</span></td>"
                     f"<td><span class='trunc' title='{esc(ev.get('dest',''))}'>{esc(ev.get('dest',''))}</span></td>"
-                    f"<td>{sha_disp}</td></tr>")
+                    f"<td>{sha_disp}</td>"
+                    f"<td>{vt_badge(sha)}</td></tr>")
 
         def r_registry(ev):
             old = esc(ev.get("old_data",""))
@@ -1174,6 +1409,63 @@ class ScoutSession:
                     f"<td>{esc(ev.get('type',''))}</td>"
                     f"<td><span class='trunc' title='{esc(ev.get('desc',''))}'>{esc(ev.get('desc',''))}</span></td></tr>")
 
+        PERSIST_TYPE_LABEL = {
+            "TASK_NEW": "TASK+", "TASK_DEL": "TASK-",
+            "SVC_NEW":  "SVC+",  "SVC_DEL":  "SVC-",
+        }
+        PERSIST_TYPE_CLS = {
+            "TASK_NEW": "badge-high",  "TASK_DEL": "badge-medium",
+            "SVC_NEW":  "badge-critical", "SVC_DEL": "badge-medium",
+        }
+        def r_persistence(ev):
+            t    = ev.get("type", "")
+            lbl  = PERSIST_TYPE_LABEL.get(t, t)
+            cls  = PERSIST_TYPE_CLS.get(t, "badge-info")
+            return (f"<tr><td>{esc(ev.get('time',''))}</td>"
+                    f"<td><span class='badge {cls}'>{esc(lbl)}</span></td>"
+                    f"<td>{esc(ev.get('name',''))}</td>"
+                    f"<td><span class='trunc' title='{esc(ev.get('detail',''))}'>{esc(ev.get('detail','')[:80])}</span></td></tr>")
+
+        def build_process_tree_html() -> str:
+            """Build a collapsible process-tree HTML from process_events."""
+            evs = data.get("process_events", [])
+            # Build adjacency: parent_pid → [child_ev, ...]
+            children_map: dict = {}
+            roots: list = []
+            for ev in evs:
+                if ev.get("type") != "SPAWN":
+                    continue
+                pp = ev.get("parent_pid")
+                if pp is None:
+                    roots.append(ev)
+                else:
+                    children_map.setdefault(pp, []).append(ev)
+
+            def render_node(ev, depth=0) -> str:
+                pid  = ev.get("pid", "")
+                name = esc(ev.get("path", ev.get("name", "")))
+                cmd  = esc(ev.get("cmdline", "")[:80])
+                ts   = esc(ev.get("time", ""))
+                kids = children_map.get(pid, [])
+                inner = "".join(render_node(c, depth+1) for c in kids)
+                toggle = f"onclick=\"this.parentElement.querySelector('.ptree-kids').classList.toggle('hidden')\"" if kids else ""
+                _cmd_html  = f'<br><span class="ptree-cmd">{cmd}</span>' if cmd else ""
+                _kids_html = f'<ul class="ptree-kids">{inner}</ul>' if kids else ""
+                _arrow     = "▸ " if kids else "  "
+                return (f"<li class='ptree-node'>"
+                        f"<span class='ptree-label' {toggle}>"
+                        f"{_arrow}<b>{name}</b> "
+                        f"<span style='color:var(--muted)'>PID {pid} @ {ts}</span>"
+                        f"{_cmd_html}</span>"
+                        f"{_kids_html}</li>")
+
+            if not roots:
+                return "<p style='opacity:.5;text-align:center;padding:20px'>Žádné procesy</p>"
+            items = "".join(render_node(ev) for ev in roots)
+            return f"<ul class='ptree'>{items}</ul>"
+
+        ptree_html = build_process_tree_html()
+
         def build_rows(evlist, builder):
             if not evlist:
                 return "<tr><td colspan='99' style=\'text-align:center;opacity:.5\'>Žádné záznamy</td></tr>"
@@ -1188,17 +1480,22 @@ class ScoutSession:
         duration = data.get("duration_seconds", 0)
         dur_str = f"{int(duration//60)}m {int(duration%60)}s" if duration else "—"
 
-        rows_fopen    = build_rows(data.get("file_access_events", []), r_fopen)
-        rows_files    = build_rows(data.get("file_events", []), r_files)
-        rows_registry = build_rows(data.get("registry_events", []), r_registry)
-        rows_network  = build_rows(data.get("network_events", []), r_network)
-        rows_process  = build_rows(data.get("process_events", []), r_process)
-        rows_dll      = build_rows(data.get("dll_events", []), r_dll)
-        rows_download = build_rows(data.get("downloads", []), r_download)
-        rows_dns      = build_rows(data.get("dns_events", []), r_dns)
-        rows_pipes    = build_rows(data.get("pipe_events", []), r_pipes)
-        rows_risk     = build_rows(data.get("risk_flags", []), r_risk)
-        rows_timeline = build_rows(_timeline, r_timeline)
+        rows_fopen       = build_rows(data.get("file_access_events", []), r_fopen)
+        rows_files       = build_rows(data.get("file_events", []), r_files)
+        rows_registry    = build_rows(data.get("registry_events", []), r_registry)
+        rows_network     = build_rows(data.get("network_events", []), r_network)
+        rows_process     = build_rows(data.get("process_events", []), r_process)
+        rows_dll         = build_rows(data.get("dll_events", []), r_dll)
+        rows_download    = build_rows(data.get("downloads", []), r_download)
+        rows_dns         = build_rows(data.get("dns_events", []), r_dns)
+        rows_pipes       = build_rows(data.get("pipe_events", []), r_pipes)
+        rows_risk        = build_rows(data.get("risk_flags", []), r_risk)
+        rows_timeline    = build_rows(_timeline, r_timeline)
+        rows_persistence = build_rows(data.get("persistence_events", []), r_persistence)
+
+        verdict_str      = esc(data.get("verdict", ""))
+        vt_count         = len(_vt)
+        vt_malicious     = sum(1 for r in _vt.values() if r.get("malicious", 0) > 0)
 
         doc = f"""<!DOCTYPE html>
 <html lang="cs">
@@ -1258,6 +1555,19 @@ tr:hover td{{background:rgba(88,166,255,.04)}}
 .trunc{{display:inline-block;max-width:320px;overflow:hidden;white-space:nowrap;
         text-overflow:ellipsis;vertical-align:bottom;cursor:pointer}}
 .trunc.expanded{{max-width:none;white-space:normal;word-break:break-all}}
+/* verdict banner */
+.verdict{{margin:12px 28px;background:var(--surface);border:1px solid var(--border);
+          border-left:4px solid {dial_color};border-radius:6px;padding:10px 16px;font-size:12px}}
+.verdict b{{color:{dial_color}}}
+/* process tree */
+.ptree,.ptree ul{{list-style:none;padding-left:20px;margin:0}}
+.ptree-node{{padding:3px 0}}
+.ptree-label{{cursor:default;display:block;padding:3px 6px;border-radius:4px}}
+.ptree-label:hover{{background:rgba(88,166,255,.07)}}
+.ptree-label[onclick]{{cursor:pointer}}
+.ptree-cmd{{font-size:11px;color:var(--muted);padding-left:20px}}
+.ptree-kids{{border-left:1px solid var(--border);margin-left:10px}}
+.ptree-kids.hidden{{display:none}}
 /* badges */
 .badge{{display:inline-block;padding:2px 7px;border-radius:10px;font-size:10px;font-weight:700;text-transform:uppercase}}
 .badge-critical{{background:#5a0000;color:#ff8080}}
@@ -1289,6 +1599,8 @@ tr:hover td{{background:rgba(88,166,255,.04)}}
   </div>
 </div>
 
+<div class="verdict"><b>Verdict:</b> {verdict_str}{"" if not vt_count else f"  &nbsp;|&nbsp; VirusTotal: <b>{vt_count}</b> hashů zkontrolováno" + (f", <span style=\\'color:#f85149\\'><b>{vt_malicious} malicious</b></span>" if vt_malicious else ", vše čisté")}</div>
+
 <div class="cards">
   <div class="card"><div class="n" style="color:{dial_color}">{risk_score}</div><div class="k">Risk Score</div></div>
   <div class="card"><div class="n">{sm.get("file_access_events",0)}</div><div class="k">Soubory (proces)</div></div>
@@ -1299,11 +1611,14 @@ tr:hover td{{background:rgba(88,166,255,.04)}}
   <div class="card"><div class="n">{sm.get("dll_events",0)}</div><div class="k">DLL</div></div>
   <div class="card"><div class="n">{sm.get("dns_events",0)}</div><div class="k">DNS</div></div>
   <div class="card"><div class="n">{sm.get("pipe_events",0)}</div><div class="k">Named Pipes</div></div>
+  <div class="card"><div class="n">{sm.get("persistence_events",0)}</div><div class="k">Persistence</div></div>
 </div>
 
 <div class="tabs">
   <button class="tab active" onclick="switchTab('risk')">⚠ Rizika</button>
   <button class="tab" onclick="switchTab('timeline')">⏱ Timeline</button>
+  <button class="tab" onclick="switchTab('persist')">🔒 Persistence</button>
+  <button class="tab" onclick="switchTab('ptree')">🌳 Process Tree</button>
   <button class="tab" onclick="switchTab('fopen')">Soubory (proces)</button>
   <button class="tab" onclick="switchTab('files')">Změny souborů</button>
   <button class="tab" onclick="switchTab('reg')">Registr</button>
@@ -1341,6 +1656,25 @@ tr:hover td{{background:rgba(88,166,255,.04)}}
   </table></div>
 </div>
 
+<!-- PERSISTENCE -->
+<div id="panel-persist" class="panel">
+  <div class="filter-bar">
+    <input type="text" placeholder="Filtr…" oninput="filterTbl('tbl-persist',this.value)">
+    <span class="count" id="cnt-persist"></span>
+  </div>
+  <div class="tbl-wrap"><table id="tbl-persist">
+    <thead><tr><th onclick="sortTbl('tbl-persist',0)">Čas</th><th onclick="sortTbl('tbl-persist',1)">Typ</th>
+    <th onclick="sortTbl('tbl-persist',2)">Název</th><th onclick="sortTbl('tbl-persist',3)">Detail</th></tr></thead>
+    <tbody>{rows_persistence}</tbody>
+  </table></div>
+</div>
+
+<!-- PROCESS TREE -->
+<div id="panel-ptree" class="panel">
+  <p style="font-size:11px;color:var(--muted);margin-bottom:12px">Kliknutím na ▸ rozbalíš/sbalíš větev. Zobrazeny pouze SPAWN eventy.</p>
+  {ptree_html}
+</div>
+
 <!-- FILE OPEN (per-process) -->
 <div id="panel-fopen" class="panel">
   <div class="filter-bar">
@@ -1349,7 +1683,8 @@ tr:hover td{{background:rgba(88,166,255,.04)}}
   </div>
   <div class="tbl-wrap"><table id="tbl-fopen">
     <thead><tr><th onclick="sortTbl('tbl-fopen',0)">Čas</th><th onclick="sortTbl('tbl-fopen',1)">PID</th>
-    <th onclick="sortTbl('tbl-fopen',2)">Cesta</th><th onclick="sortTbl('tbl-fopen',3)">SHA-256</th></tr></thead>
+    <th onclick="sortTbl('tbl-fopen',2)">Cesta</th><th onclick="sortTbl('tbl-fopen',3)">SHA-256</th>
+    <th onclick="sortTbl('tbl-fopen',4)">VT</th></tr></thead>
     <tbody>{rows_fopen}</tbody>
   </table></div>
 </div>
@@ -1363,7 +1698,7 @@ tr:hover td{{background:rgba(88,166,255,.04)}}
   <div class="tbl-wrap"><table id="tbl-files">
     <thead><tr><th onclick="sortTbl('tbl-files',0)">Čas</th><th onclick="sortTbl('tbl-files',1)">Typ</th>
     <th onclick="sortTbl('tbl-files',2)">Cesta</th><th onclick="sortTbl('tbl-files',3)">Cíl</th>
-    <th onclick="sortTbl('tbl-files',4)">SHA-256</th></tr></thead>
+    <th onclick="sortTbl('tbl-files',4)">SHA-256</th><th onclick="sortTbl('tbl-files',5)">VT</th></tr></thead>
     <tbody>{rows_files}</tbody>
   </table></div>
 </div>
@@ -1468,7 +1803,7 @@ tr:hover td{{background:rgba(88,166,255,.04)}}
 <div class="footer">Scout Report &mdash; generated {gen_time}</div>
 
 <script>
-const TAB_IDS = ['risk','timeline','fopen','files','reg','net','proc','dll','dns','pipe','dl'];
+const TAB_IDS = ['risk','timeline','persist','ptree','fopen','files','reg','net','proc','dll','dns','pipe','dl'];
 function switchTab(id) {{
   document.querySelectorAll('.tab').forEach((b,i) => b.classList.toggle('active', TAB_IDS[i] === id));
   document.querySelectorAll('.panel').forEach(p => p.classList.toggle('active', p.id === 'panel-'+id));
