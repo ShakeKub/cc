@@ -122,6 +122,7 @@ def _parse_pe(data: bytes) -> dict:
         if characteristics & 0x2000: flags.append("DLL")
         if characteristics & 0x0020: flags.append("large-address-aware")
         info["characteristics"] = flags
+        info["type"] = "DLL" if (characteristics & 0x2000) else "EXE"
     except Exception:
         pass
     return info
@@ -158,6 +159,7 @@ def analyze(path: str, max_strings: int = 200, sample_bytes: int = 1024 * 1024) 
     try:
         st = p.stat()
         result["size"]    = st.st_size
+        result["size_bytes"] = st.st_size
         result["mtime"]   = st.st_mtime
         result["mode"]    = stat.filemode(st.st_mode)
     except Exception as exc:
@@ -172,6 +174,10 @@ def analyze(path: str, max_strings: int = 200, sample_bytes: int = 1024 * 1024) 
 
     header = sample[:512]
     result["file_type"] = detect_type(header)
+    result["type_magic"] = result["file_type"]
+
+    ext = p.suffix.lower()
+    result["type_ext"] = ext if ext else "(no extension)"
 
     ent = entropy(sample)
     result["entropy"]       = round(ent, 3)
@@ -183,9 +189,10 @@ def analyze(path: str, max_strings: int = 200, sample_bytes: int = 1024 * 1024) 
     # Format-specific parsing
     result["pe_info"]  = _parse_pe(sample)
     result["elf_info"] = _parse_elf(sample)
+    result["pe"] = result["pe_info"]
+    result["elf"] = result["elf_info"]
 
     # Extension vs magic mismatch
-    ext = p.suffix.lower()
     ft  = result["file_type"].lower()
     mismatch = False
     if ext in (".exe", ".dll") and "pe" not in ft and "mz" not in ft:

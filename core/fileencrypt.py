@@ -136,14 +136,15 @@ def _decrypt_algo(algo: str, key: bytes, nonce: bytes, ciphertext: bytes) -> byt
 
 def encrypt_file(src: Path | str, password: str, logger=None,
                  algo: str = DEFAULT_ALGO,
-                 scrypt_n: int = 32768) -> dict[str, Any]:
+                 scrypt_n: int = 32768,
+                 dst: Path | str | None = None) -> dict[str, Any]:
     """Encrypt src → src.scenc.  Returns {ok, dst, algo, error}."""
     try:
         if algo not in ALGOS:
             return {"ok": False, "dst": None, "algo": algo,
                     "error": f"Unknown algorithm '{algo}'"}
         src = Path(src)
-        dst = src.with_suffix(src.suffix + _EXT)
+        dst_path = Path(dst) if dst else src.with_suffix(src.suffix + _EXT)
 
         magic, key_len, nonce_len = ALGOS[algo]
         salt  = os.urandom(_SALT_LEN)
@@ -153,7 +154,7 @@ def encrypt_file(src: Path | str, password: str, logger=None,
         plaintext = src.read_bytes()
         ciphertext = _encrypt_algo(algo, key, nonce, plaintext)
 
-        with open(dst, "wb") as f:
+        with open(dst_path, "wb") as f:
             f.write(magic)
             if magic != _V1_MAGIC:
                 n_exp = scrypt_n.bit_length() - 1
@@ -165,7 +166,7 @@ def encrypt_file(src: Path | str, password: str, logger=None,
 
         if logger:
             logger.log_action("encrypt", str(src), category="fileencrypt")
-        return {"ok": True, "dst": dst, "algo": algo, "error": ""}
+        return {"ok": True, "dst": dst_path, "algo": algo, "error": ""}
     except Exception as e:
         return {"ok": False, "dst": None, "algo": algo, "error": str(e)}
 
@@ -193,7 +194,8 @@ def _parse_header(raw: bytes) -> tuple[str, int, int, int, int] | None:
     return algo, n, r, p, 12
 
 
-def decrypt_file(src: Path | str, password: str, logger=None) -> dict[str, Any]:
+def decrypt_file(src: Path | str, password: str, logger=None,
+                 dst: Path | str | None = None) -> dict[str, Any]:
     """Auto-detect algorithm and decrypt.  Returns {ok, dst, algo, error}."""
     try:
         src = Path(src)
@@ -217,12 +219,12 @@ def decrypt_file(src: Path | str, password: str, logger=None) -> dict[str, Any]:
         key = _derive_key(password, salt, key_len, n=kdf_n, r=kdf_r, p=kdf_p)
         plaintext = _decrypt_algo(algo, key, nonce, ct)
 
-        dst = Path(str(src)[:-len(_EXT)])
-        dst.write_bytes(plaintext)
+        dst_path = Path(dst) if dst else Path(str(src)[:-len(_EXT)])
+        dst_path.write_bytes(plaintext)
 
         if logger:
             logger.log_action("decrypt", str(src), category="fileencrypt")
-        return {"ok": True, "dst": dst, "algo": algo, "error": ""}
+        return {"ok": True, "dst": dst_path, "algo": algo, "error": ""}
     except Exception as e:
         return {"ok": False, "dst": None, "algo": "?",
                 "error": "Wrong password or corrupted file"}

@@ -49,10 +49,10 @@ def capacity(image_path: str) -> int:
     Image = _require_pil()
     with Image.open(image_path) as img:
         w, h = img.size
-    return (w * h * 3) // 8 - _HDR_LEN
+    return max((w * h * 3) // 8 - _HDR_LEN, 0)
 
 
-def hide(cover_path: str, data: bytes, output_path: str, password: str = "") -> dict:
+def hide(cover_path: str, data: bytes, output_path: str, password: str | None = "") -> dict:
     """Embed *data* into *cover_path*. Saves lossless PNG to *output_path*."""
     Image = _require_pil()
 
@@ -101,8 +101,8 @@ def hide(cover_path: str, data: bytes, output_path: str, password: str = "") -> 
     }
 
 
-def extract(stego_path: str, password: str = "") -> dict:
-    """Extract data hidden by *hide()* from *stego_path*."""
+def extract(stego_path: str, password: str | None = "") -> bytes:
+    """Extract data hidden by *hide()* from *stego_path* and return raw bytes."""
     Image = _require_pil()
 
     with Image.open(stego_path) as img:
@@ -115,12 +115,12 @@ def extract(stego_path: str, password: str = "") -> dict:
         all_bits += [r & 1, g & 1, b & 1]
 
     if len(all_bits) < _HDR_LEN * 8:
-        return {"ok": False, "error": "Image too small to contain data."}
+        raise ValueError("Image too small to contain data.")
 
     header = _from_bits(all_bits[: _HDR_LEN * 8])
 
     if header[:4] != _MAGIC:
-        return {"ok": False, "error": "No hidden data found (magic mismatch)."}
+        raise ValueError("No hidden data found (magic mismatch).")
 
     encrypted = bool(header[5] & 0x01)
     data_len  = struct.unpack(">I", header[6:10])[0]
@@ -129,13 +129,13 @@ def extract(stego_path: str, password: str = "") -> dict:
     end   = start + data_len * 8
 
     if end > len(all_bits):
-        return {"ok": False, "error": "Corrupted: data length exceeds image capacity."}
+        raise ValueError("Corrupted: data length exceeds image capacity.")
 
     payload = _from_bits(all_bits[start:end])
 
     if encrypted:
         if not password:
-            return {"ok": False, "error": "Data is password-protected — provide password."}
+            raise ValueError("Data is password-protected - provide password.")
         payload = _xor_keystream(payload, password)
 
-    return {"ok": True, "data": payload, "size": len(payload), "encrypted": encrypted}
+    return payload

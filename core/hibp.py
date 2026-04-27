@@ -2,6 +2,7 @@
 
 import hashlib
 import urllib.error
+import urllib.parse
 import urllib.request
 
 
@@ -43,13 +44,13 @@ def check_password(password: str) -> dict:
     return {"pwned": False, "count": 0, "hash": sha1, "error": None}
 
 
-def check_email_breaches(email: str, api_key: str, truncate: bool = False) -> dict:
+def check_email_breaches(email: str, api_key: str, truncate: bool = False) -> list[dict] | dict:
     """Check email against HIBP breach database. Requires a paid API key.
 
-    Returns: {found: bool, breaches: [...], error: str|None}
+    Returns list[breach] on success and {"error": ...} on error.
     """
     import json
-    url = _EMAIL_URL.format(email=urllib.request.quote(email))
+    url = _EMAIL_URL.format(email=urllib.parse.quote(email))
     if truncate:
         url += "?truncateResponse=true"
 
@@ -64,24 +65,21 @@ def check_email_breaches(email: str, api_key: str, truncate: bool = False) -> di
             breaches = json.loads(body)
         except Exception:
             breaches = []
-        return {"found": True, "breaches": breaches, "count": len(breaches), "error": None}
+        return breaches if isinstance(breaches, list) else []
     if status == 404:
-        return {"found": False, "breaches": [], "count": 0, "error": None}
+        return []
     if status == 401:
-        return {"found": False, "breaches": [], "count": 0,
-                "error": "Invalid API key. Get one at haveibeenpwned.com/API/Key"}
+        return {"error": "Invalid API key. Get one at haveibeenpwned.com/API/Key"}
     if status == 429:
-        return {"found": False, "breaches": [], "count": 0,
-                "error": "Rate limited — wait a moment and retry."}
+        return {"error": "Rate limited - wait a moment and retry."}
 
-    return {"found": False, "breaches": [], "count": 0,
-            "error": f"API error {status}: {body[:100]}"}
+    return {"error": f"API error {status}: {body[:100]}"}
 
 
 def check_email_pastes(email: str, api_key: str) -> dict:
     """Check if email appears in pastes (Pastebin, etc.). Requires API key."""
     import json
-    url = _PASTE_URL.format(email=urllib.request.quote(email))
+    url = _PASTE_URL.format(email=urllib.parse.quote(email))
     headers = {"hibp-api-key": api_key, "User-Agent": _UA}
     status, body = _get(url, headers=headers)
 
@@ -98,6 +96,6 @@ def check_email_pastes(email: str, api_key: str) -> dict:
             "error": f"API error {status}: {body[:100]}"}
 
 
-def check_multiple_passwords(passwords: list[str]) -> list[dict]:
-    """Batch check a list of passwords. Returns list of results."""
-    return [{"password": pw, **check_password(pw)} for pw in passwords]
+def check_multiple_passwords(passwords: list[str]) -> dict[str, dict]:
+    """Batch check a list of passwords. Returns mapping password -> result."""
+    return {pw: check_password(pw) for pw in passwords}
