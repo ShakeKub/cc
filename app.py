@@ -66,6 +66,10 @@ def header(title=""):
         sep()
 
 
+# Backward-compatible alias used by newer menu sections.
+hdr = header
+
+
 def prompt(text=""):
     try:
         return input(f"{Y}>{RST} {text}").strip()
