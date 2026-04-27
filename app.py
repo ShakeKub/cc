@@ -1757,6 +1757,7 @@ def menu_uninstaller(logger: CleanerLogger):
         print(f"  {C}[2]{RST} Built-in Windows apps (Teams, Xbox, Cortana…)")
         print(f"  {C}[3]{RST} {R}Remove ALL bloatware{RST}  (Teams, Xbox, Cortana, News, Maps…)")
         print(f"  {C}[4]{RST} Find orphaned registry entries")
+        print(f"  {C}[5]{RST} Smart full uninstall (name or shortcut folder)")
         print(f"  {C}[0]{RST} Back")
         sep()
         c = prompt()
@@ -1785,6 +1786,8 @@ def menu_uninstaller(logger: CleanerLogger):
             except Exception as e:
                 err(str(e))
             pause()
+        elif c == "5":
+            _menu_uninstaller_smart(logger)
 
 
 def _menu_remove_all_bloatware(logger: CleanerLogger):
@@ -1839,6 +1842,115 @@ def _menu_remove_all_bloatware(logger: CleanerLogger):
     pause()
 
 
+def _menu_uninstaller_smart(logger: CleanerLogger):
+    """Smart full uninstall by query and/or shortcut location."""
+    query = ""
+    shortcut_path = ""
+
+    while True:
+        header("Uninstaller — Smart Full Wipe")
+        print(f"  {C}[1]{RST} Set app query/name")
+        print(f"  {C}[2]{RST} Set shortcut folder or .lnk path")
+        print(f"  {C}[3]{RST} Find candidates and FULL remove")
+        print(f"  {C}[0]{RST} Back")
+        sep()
+        print(f"  Query         : {query or '(not set)'}")
+        print(f"  Shortcut path : {shortcut_path or '(not set)'}")
+        sep()
+
+        c = prompt()
+        if c == "0":
+            return
+        if c == "1":
+            query = prompt("App name/query: ").strip()
+            continue
+        if c == "2":
+            shortcut_path = prompt("Shortcut folder or .lnk path: ").strip().strip('"')
+            if shortcut_path and not Path(shortcut_path).exists():
+                warn("Path does not exist. You can still continue with query-only matching.")
+                pause()
+            continue
+        if c != "3":
+            continue
+
+        if not query and not shortcut_path:
+            err("Set app query or shortcut path first.")
+            pause()
+            continue
+
+        info("Loading installed programs and searching best candidates...")
+        try:
+            from core.uninstaller import list_installed_programs, find_program_candidates, full_uninstall_program
+            programs = list_installed_programs(logger)
+            candidates = find_program_candidates(
+                programs,
+                query=query,
+                shortcut_path=shortcut_path,
+                logger=logger,
+                limit=15,
+            )
+        except Exception as e:
+            err(str(e))
+            pause()
+            continue
+
+        if not candidates:
+            warn("No matching installed app found.")
+            pause()
+            continue
+
+        sep()
+        print(f"  {'#':>4}  {'Score':>5}  {'Name':<36}  Publisher")
+        sep("-")
+        for i, cand in enumerate(candidates):
+            print(
+                f"  {i+1:>4}  {cand.get('match_score', 0):>5}  "
+                f"{cand.get('name', '')[:36]:<36}  {cand.get('publisher', '')[:24]}"
+            )
+        sep()
+        pick_raw = prompt("Select # to FULL uninstall (0 = cancel): ").strip()
+        if pick_raw in ("", "0"):
+            continue
+
+        try:
+            pick_idx = int(pick_raw) - 1
+            selected = candidates[pick_idx]
+        except (ValueError, IndexError):
+            err("Invalid number.")
+            pause()
+            continue
+
+        reason = ", ".join(selected.get("match_reasons", []))
+        warn(f"FULL remove '{selected['name']}' and all detected leftovers?")
+        if reason:
+            info(f"Match reasons: {reason}")
+        warn("This removes app files, shortcuts and related registry artifacts.")
+        if prompt("Type YES: ").upper() != "YES":
+            info("Cancelled.")
+            pause()
+            continue
+
+        try:
+            result = full_uninstall_program(
+                selected,
+                logger,
+                silent=True,
+                shortcut_path=shortcut_path,
+            )
+            stats = result.get("leftovers_found", {})
+            sep()
+            ok(f"Full remove finished for: {result.get('name', selected['name'])}")
+            print(f"  Uninstall command: {'OK' if result.get('uninstall_ok') else 'FAILED/NOT FOUND'}")
+            print(f"  Leftovers removed: files={stats.get('files', 0)} dirs={stats.get('dirs', 0)}")
+            print(f"                     reg_keys={stats.get('registry', 0)} reg_values={stats.get('registry_values', 0)}")
+            print(f"  Freed: {fmt_bytes(int(result.get('bytes_freed', 0)))}")
+            if not result.get("uninstall_ok"):
+                warn("Uninstall command failed or missing, but cleanup still ran.")
+        except Exception as e:
+            err(str(e))
+        pause()
+
+
 def _menu_uninstaller_programs(logger: CleanerLogger):
     """List and uninstall regular programs from registry."""
     info("Loading installed programs...")
@@ -1865,11 +1977,18 @@ def _menu_uninstaller_programs(logger: CleanerLogger):
         if active_filter:
             info(f"Filter active: '{active_filter}'  ({len(filtered)} results)")
         sep()
-        print(f"  {C}[u #]{RST} Uninstall #   {C}[s word]{RST} Search   {C}[r]{RST} Reset filter   {C}[0]{RST} Back")
+        print(
+            f"  {C}[u #]{RST} Uninstall #   {C}[fu #]{RST} Full wipe #   "
+            f"{C}[s word]{RST} Search   {C}[r]{RST} Reset filter"
+        )
+        print(f"  {C}[smart]{RST} Smart find+wipe   {C}[0]{RST} Back")
         sep()
         cmd = prompt()
         if cmd == "0":
             break
+        if cmd.strip().lower() == "smart":
+            _menu_uninstaller_smart(logger)
+            continue
         if cmd == "r":
             filtered = all_programs[:]
             active_filter = ""
@@ -1883,6 +2002,41 @@ def _menu_uninstaller_programs(logger: CleanerLogger):
             filtered = [p for p in all_programs if query in p["name"].lower()
                         or query in p.get("publisher", "").lower()]
             info(f"Showing {len(filtered)} matches for '{active_filter}'")
+        elif parts[0] == "fu" and len(parts) > 1:
+            try:
+                idx = int(parts[1]) - 1
+                prog = filtered[idx]
+                shortcut_hint = prompt("Optional shortcut folder/.lnk path (Enter to skip): ").strip().strip('"')
+                warn(f"FULL remove '{prog['name']}' and all detected leftovers?")
+                if prompt("Type YES: ").upper() == "YES":
+                    try:
+                        from core.uninstaller import full_uninstall_program
+                        result = full_uninstall_program(
+                            prog,
+                            logger,
+                            silent=True,
+                            shortcut_path=shortcut_hint,
+                        )
+                        stats = result.get("leftovers_found", {})
+                        ok(
+                            f"Full wipe done: {prog['name']} | freed {fmt_bytes(int(result.get('bytes_freed', 0)))}"
+                        )
+                        info(
+                            "Removed artifacts: "
+                            f"files={stats.get('files', 0)} "
+                            f"dirs={stats.get('dirs', 0)} "
+                            f"reg_keys={stats.get('registry', 0)} "
+                            f"reg_values={stats.get('registry_values', 0)}"
+                        )
+                        if prog in all_programs:
+                            all_programs.remove(prog)
+                        if prog in filtered:
+                            filtered.remove(prog)
+                    except Exception as e:
+                        err(str(e))
+            except (ValueError, IndexError):
+                err("Invalid number.")
+            pause()
         elif parts[0] == "u" and len(parts) > 1:
             try:
                 idx = int(parts[1]) - 1
@@ -2232,11 +2386,11 @@ def menu_scout(logger: CleanerLogger):
         print(f"  {C}[3]{RST} List saved sessions")
         print(f"  {C}[4]{RST} View session report  {DIM}(added / modified / deleted / unchanged){RST}")
         print(f"  {C}[5]{RST} Delete a session")
-        print(f"  {C}[8]{RST} Export session to file  {DIM}(HTML nebo JSON){RST}")
-        print(f"  {C}[9]{RST} Compare two sessions    {DIM}(diff souborů a registrů){RST}")
+        print(f"  {C}[6]{RST} Export session to file  {DIM}(HTML nebo JSON){RST}")
+        print(f"  {C}[7]{RST} Compare two sessions    {DIM}(diff souborů a registrů){RST}")
         sep("-")
-        print(f"  {C}[6]{RST} Pre-launch scan      {DIM}(inspect existing app traces before running){RST}")
-        print(f"  {C}[7]{RST} Protected run         {DIM}(snapshot + net block + diff on exit){RST}")
+        print(f"  {C}[8]{RST} Pre-launch scan      {DIM}(static analýza stop před spuštěním){RST}")
+        print(f"  {C}[9]{RST} Protected run         {DIM}(snapshot + net block + diff na výstupu){RST}")
         print(f"  {C}[0]{RST} Back")
         sep()
         c = prompt()
@@ -2394,7 +2548,7 @@ def menu_scout(logger: CleanerLogger):
                f"dll:{C}{s['dll_events']}{RST}  "
                f"dns:{C}{s.get('dns_events',0)}{RST}  "
                f"risks:{risk_col}{s.get('risk_flags',0)}{RST}")
-            print(f"  {DIM}Exportovat? Použijte možnost [8]{RST}")
+            print(f"  {DIM}Exportovat? Použijte možnost [6]{RST}")
             current = None
             pause()
 
@@ -2515,7 +2669,7 @@ def menu_scout(logger: CleanerLogger):
                 err("Session not found.")
             pause()
 
-        elif c == "8":
+        elif c == "6":
             # ── Export session to file ───────────────────────
             sessions = ScoutSession.load_sessions(str(profile_path))
             if not sessions:
@@ -2572,8 +2726,8 @@ def menu_scout(logger: CleanerLogger):
                 err(str(e))
             pause()
 
-        # ── [9] Compare two sessions ─────────────────────────
-        elif c == "9":
+        # ── [7] Compare two sessions ─────────────────────────
+        elif c == "7":
             sessions = ScoutSession.load_sessions(str(profile_path))
             if len(sessions) < 2:
                 err("Potřebuji alespoň dvě uložené session.")
@@ -2642,8 +2796,8 @@ def menu_scout(logger: CleanerLogger):
             print(f"  Risk score:  A={R}{ra}{RST}  B={Y}{rb}{RST}")
             pause()
 
-        # ── [6] Pre-launch scan ──────────────────────────────
-        elif c == "6":
+        # ── [8] Pre-launch scan ──────────────────────────────
+        elif c == "8":
             app_name = prompt("App name or exe to scan before launch: ").strip()
             if not app_name:
                 continue
@@ -2680,8 +2834,8 @@ def menu_scout(logger: CleanerLogger):
                 err(str(e))
             pause()
 
-        # ── [7] Protected / sandboxed run ────────────────────
-        elif c == "7":
+        # ── [9] Protected / sandboxed run ────────────────────
+        elif c == "9":
             exe = prompt("Path to .exe: ").strip().strip('"')
             if not exe or not Path(exe).is_file():
                 err("File not found."); pause(); continue

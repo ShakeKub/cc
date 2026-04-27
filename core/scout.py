@@ -233,6 +233,10 @@ class ScoutSession:
         self.is_paused:             bool = False
         self._auto_stop_requested:  bool = False
 
+        # Cross-reference set: paths touched by target PIDs (populated by open_files monitor)
+        # Used to filter watchdog file events when a target process is set.
+        self._target_files: set[str] = set()
+
     # ── public API ───────────────────────────────────────────────────────────
 
     def start(self, exe_path: str | None = None,
@@ -342,6 +346,13 @@ class ScoutSession:
 
         class _Handler(FileSystemEventHandler):
             def _emit(self, etype: str, src: str, dest: str = "") -> None:
+                # When a specific target process is being tracked, skip watchdog
+                # events for paths that the target process hasn't touched — this
+                # prevents noise from unrelated apps (e.g. ubisoft.exe, antivirus).
+                if session.target_process and session._target_pids:
+                    path_lc = os.path.normcase(src)
+                    if path_lc not in session._target_files:
+                        return
                 ev: dict = {"type": etype, "path": src, "time": _ts(), "category": "file"}
                 if dest:
                     ev["dest"] = dest
@@ -449,25 +460,33 @@ class ScoutSession:
                                 }
                             except Exception:
                                 pass
-                            ev = {
-                                "type": "SPAWN", "path": name, "pid": pid,
-                                "parent_pid": parent_pid, "cmdline": cmdline[:400],
-                                "exe": exe, "cwd": cwd, "username": username,
-                                "environ": environ_snap,
-                                "time": _ts(), "category": "process",
-                            }
-                            self.process_events.append(ev)
-                            self.event_queue.put(ev)
+                            is_target = (
+                                not self.target_process
+                                or name.lower() == self.target_process
+                                or (parent_pid is not None and parent_pid in self._target_pids)
+                            )
+                            if is_target:
+                                ev = {
+                                    "type": "SPAWN", "path": name, "pid": pid,
+                                    "parent_pid": parent_pid, "cmdline": cmdline[:400],
+                                    "exe": exe, "cwd": cwd, "username": username,
+                                    "environ": environ_snap,
+                                    "time": _ts(), "category": "process",
+                                }
+                                self.process_events.append(ev)
+                                self.event_queue.put(ev)
                             if self.target_process and parent_pid in self._target_pids:
                                 self._target_pids.add(pid)
 
                     for pid in list(prev_pids):
                         if pid not in cur_pids:
-                            ev = {"type": "EXIT", "path": prev_pids[pid], "pid": pid,
-                                  "time": _ts(), "category": "process"}
-                            self.process_events.append(ev)
-                            self.event_queue.put(ev)
+                            was_tracked = (not self.target_process) or (pid in self._target_pids)
                             self._target_pids.discard(pid)
+                            if was_tracked:
+                                ev = {"type": "EXIT", "path": prev_pids[pid], "pid": pid,
+                                      "time": _ts(), "category": "process"}
+                                self.process_events.append(ev)
+                                self.event_queue.put(ev)
 
                     if self.target_process and not self._target_pids:
                         for pid, name in cur_pids.items():
@@ -515,7 +534,10 @@ class ScoutSession:
                 for pid in list(session._target_pids):
                     try:
                         for f in psutil.Process(pid).open_files():
-                            norm = f.path.lower()
+                            norm = os.path.normcase(f.path)
+                            # Feed _target_files so the watchdog handler can
+                            # cross-reference and only emit events for these paths.
+                            session._target_files.add(norm)
                             if norm not in seen:
                                 seen.add(norm)
                                 ev = {
@@ -628,6 +650,11 @@ class ScoutSession:
                             continue
                         key = _conn_key(c)
                         if key not in prev:
+                            # When tracking a specific target, only record
+                            # connections from that process and its children.
+                            if self.target_process and self._target_pids:
+                                if (c.pid or 0) not in self._target_pids:
+                                    continue
                             proc_name = ""
                             if c.pid:
                                 try:
