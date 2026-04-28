@@ -185,8 +185,10 @@ def _menu_categories():
             ("3",  t("menu.standard_clean")),
             ("4",  t("menu.deep_clean")),
             ("5",  t("menu.team_clean")),
+            ("90", t("menu.space_makers")),
         ]),
         (t("cat.file_tools"), [
+            ("72", t("menu.scan_filters")),
             ("6",  t("menu.duplicates")),
             ("7",  t("menu.large_files")),
             ("8",  t("menu.empty_folders")),
@@ -214,6 +216,11 @@ def _menu_categories():
             ("63", t("menu.backup")),
             ("64", t("menu.startupaudit")),
             ("69", t("menu.cam_audit")),
+            ("73", t("menu.wifi_passwords")),
+            ("74", t("menu.dns_recon")),
+            ("75", t("menu.http_scan")),
+            ("88", t("menu.cert_viewer")),
+            ("89", t("menu.browser_pwd")),
         ]),
         (t("cat.tools"), [
             ("11", t("menu.browser_tools")),
@@ -236,6 +243,14 @@ def _menu_categories():
             ("46", t("menu.pkg_mgr")),
             ("49", t("menu.app_mgr")),
             ("71", t("menu.code_fmt")),
+            ("76", t("menu.shares_mgr")),
+            ("77", t("menu.proxy_mgr")),
+            ("79", t("menu.svc_mgr")),
+            ("81", t("menu.shadow_copy")),
+            ("84", t("menu.git_scanner")),
+            ("85", t("menu.docker_mgr")),
+            ("86", t("menu.dep_walker")),
+            ("87", t("menu.wsl_mgr")),
         ]),
         (t("cat.monitoring"), [
             ("22", t("menu.app_tracer")),
@@ -251,6 +266,9 @@ def _menu_categories():
             ("67", t("menu.temp_monitor")),
             ("68", t("menu.battery_info")),
             ("70", t("menu.disk_analyzer")),
+            ("78", t("menu.hw_info")),
+            ("80", t("menu.event_log")),
+            ("82", t("menu.usb_history")),
         ]),
         (t("cat.system"), [
             ("27", t("menu.history_mgr")),
@@ -262,6 +280,7 @@ def _menu_categories():
             ("41", t("menu.dns_hosts")),
             ("42", t("menu.ad_blocker")),
             ("43", t("menu.wol")),
+            ("83", t("menu.win_activation")),
         ]),
     ]
 
@@ -406,6 +425,25 @@ _DISPATCH = {
     "69": lambda l: menu_cam_audit(l),
     "70": lambda l: menu_disk_analyzer(l),
     "71": lambda l: menu_code_fmt(l),
+    "72": lambda l: menu_scan_filters(l),
+    "73": lambda l: menu_wifi_passwords(l),
+    "74": lambda l: menu_dns_recon(l),
+    "75": lambda l: menu_http_scan(l),
+    "76": lambda l: menu_shares_mgr(l),
+    "77": lambda l: menu_proxy_mgr(l),
+    "78": lambda l: menu_hw_info(l),
+    "79": lambda l: menu_svc_mgr(l),
+    "80": lambda l: menu_event_log(l),
+    "81": lambda l: menu_shadow_copy(l),
+    "82": lambda l: menu_usb_history(l),
+    "83": lambda l: menu_win_activation(l),
+    "84": lambda l: menu_git_scanner(l),
+    "85": lambda l: menu_docker_mgr(l),
+    "86": lambda l: menu_dep_walker(l),
+    "87": lambda l: menu_wsl_mgr(l),
+    "88": lambda l: menu_cert_viewer(l),
+    "89": lambda l: menu_browser_pwd(l),
+    "90": lambda l: menu_space_makers(l),
 }
 
 
@@ -2297,6 +2335,195 @@ def menu_team_clean(logger: CleanerLogger):
     pause()
 
 
+# ── 18. HIGH-VALUE SPACE MAKERS ────────────────────────────
+
+def menu_space_makers(logger: CleanerLogger):
+    def _show_items(items: list[dict], limit: int = 10):
+        total = sum(item.get("size", 0) for item in items)
+        ok(f"Found {len(items)} item(s), total {fmt_bytes(total)}")
+        for item in items[:limit]:
+            print(f"    {fmt_bytes(item.get('size', 0)):>10}  {item.get('path', '')}")
+        if len(items) > limit:
+            info(f"... and {len(items) - limit} more")
+        return total
+
+    def _scan_delete(title: str, scan_fn, clean_fn):
+        items = scan_fn()
+        sep()
+        if not items:
+            info(f"No {title.lower()} found.")
+            pause()
+            return
+        _show_items(items)
+        sep()
+        warn(f"Delete all detected {title.lower()}?")
+        if prompt(t("prompt.type_yes_confirm")).upper() in ("YES", "ANO"):
+            freed = clean_fn(logger)
+            ok(f"{title} cleaned: {fmt_bytes(freed)}")
+        else:
+            info("Cancelled.")
+        pause()
+
+    def _pagefile_menu():
+        while True:
+            header("Hibernation / Page File")
+            print(f"  {C}[1]{RST} Disable hibernation")
+            print(f"  {C}[2]{RST} Set page file to system-managed")
+            print(f"  {C}[3]{RST} Set custom page file size")
+            print(f"  {C}[0]{RST} {t('menu.back')}")
+            sep()
+            choice = prompt()
+            if choice in ("0", "b", "back"):
+                return
+
+            if os.name != "nt":
+                warn("Windows only.")
+                pause()
+                continue
+
+            try:
+                if choice == "1":
+                    warn("This frees hiberfil.sys and requires a reboot for full effect.")
+                    if prompt(t("prompt.type_yes_confirm")).upper() in ("YES", "ANO"):
+                        from core.spacemakers import disable_hibernation
+
+                        result = disable_hibernation(logger)
+                        if result.get("ok"):
+                            ok(result.get("message", "Hibernation disabled."))
+                        else:
+                            err(result.get("message", "Failed."))
+                    else:
+                        info("Cancelled.")
+                    pause()
+                elif choice == "2":
+                    warn("This changes Windows page file management and may require a reboot.")
+                    if prompt(t("prompt.type_yes_confirm")).upper() in ("YES", "ANO"):
+                        from core.spacemakers import set_pagefile_system_managed
+
+                        result = set_pagefile_system_managed(logger)
+                        if result.get("ok"):
+                            ok("Page file set to system-managed.")
+                        else:
+                            err(result.get("message", "Failed."))
+                    else:
+                        info("Cancelled.")
+                    pause()
+                elif choice == "3":
+                    size_s = prompt("Target page file size in MB: ").strip()
+                    if not size_s.isdigit() or int(size_s) <= 0:
+                        err("Invalid size.")
+                        pause()
+                        continue
+                    size_mb = int(size_s)
+                    warn(f"Set a smaller page file size to {size_mb} MB? This may require a reboot.")
+                    if prompt(t("prompt.type_yes_confirm")).upper() in ("YES", "ANO"):
+                        from core.spacemakers import set_pagefile_custom_size
+
+                        result = set_pagefile_custom_size(size_mb, logger)
+                        if result.get("ok"):
+                            ok(f"Page file size set to {size_mb} MB.")
+                        else:
+                            err(result.get("message", "Failed."))
+                    else:
+                        info("Cancelled.")
+                    pause()
+            except Exception as exc:
+                err(str(exc))
+                pause()
+
+    while True:
+        header(t("hdr.space_makers"))
+        print(f"  {C}[1]{RST} Dev junk cleaner   {DIM}(node_modules, .venv, __pycache__, target, .gradle, .m2){RST}")
+        print(f"  {C}[2]{RST} Package manager caches   {DIM}(npm, pip, cargo, brew, conda){RST}")
+        print(f"  {C}[3]{RST} Windows component store   {DIM}(WinSxS + Windows.old){RST}")
+        print(f"  {C}[4]{RST} Hibernation / page file manager")
+        print(f"  {C}[5]{RST} App cache cleaner   {DIM}(Spotify, Discord, Teams, Slack, VS Code, Steam, Electron){RST}")
+        print(f"  {C}[6]{RST} Recycle Bin / Trash emptier")
+        print(f"  {C}[7]{RST} Old backup finder   {DIM}(.bak, Copy of *, *_old.*, *_backup.*, ~){RST}")
+        print(f"  {C}[0]{RST} {t('menu.back')}")
+        sep()
+        choice = prompt()
+
+        if choice in ("0", "b", "back"):
+            return
+
+        try:
+            if choice == "1":
+                from core.spacemakers import clean_dev_junk, scan_dev_junk
+
+                _scan_delete("dev junk directories", scan_dev_junk, clean_dev_junk)
+            elif choice == "2":
+                from core.spacemakers import clean_package_caches, scan_package_caches
+
+                _scan_delete("package cache directories", scan_package_caches, clean_package_caches)
+            elif choice == "3":
+                if os.name != "nt":
+                    warn("Windows only.")
+                    pause()
+                    continue
+                warn("This runs DISM /startcomponentcleanup /resetbase and may take a while.")
+                warn("Windows.old will also be removed if present.")
+                if prompt(t("prompt.type_yes_confirm")).upper() in ("YES", "ANO"):
+                    from core.spacemakers import clean_component_store
+
+                    result = clean_component_store(logger)
+                    if result.get("ok"):
+                        freed = fmt_bytes(int(result.get("freed", 0)))
+                        ok(f"Component store cleanup finished. Freed: {freed}")
+                        if result.get("windows_old_removed"):
+                            ok(f"Windows.old removed ({fmt_bytes(int(result.get('windows_old_size', 0)))})")
+                        else:
+                            info("Windows.old not found or could not be removed.")
+                    else:
+                        err(result.get("message", "Cleanup failed."))
+                else:
+                    info("Cancelled.")
+                pause()
+            elif choice == "4":
+                _pagefile_menu()
+            elif choice == "5":
+                from core.spacemakers import clean_app_caches, scan_app_caches
+
+                _scan_delete("app cache directories", scan_app_caches, clean_app_caches)
+            elif choice == "6":
+                if os.name == "nt":
+                    try:
+                        from core.recovery import get_recycle_bin_items
+
+                        items = get_recycle_bin_items(logger)
+                        sep()
+                        if items:
+                            _show_items(items)
+                        else:
+                            info("Recycle Bin is already empty.")
+                    except Exception:
+                        info("Recycle Bin scan unavailable.")
+                else:
+                    info("Trash will be emptied from your home directory.")
+                warn("Empty the Recycle Bin / Trash now?")
+                if prompt(t("prompt.type_yes_confirm")).upper() in ("YES", "ANO"):
+                    from core.spacemakers import empty_trash
+
+                    freed = empty_trash(logger)
+                    if os.name == "nt":
+                        ok("Recycle Bin emptied.")
+                    else:
+                        ok(f"Trash emptied: {fmt_bytes(freed)}")
+                else:
+                    info("Cancelled.")
+                pause()
+            elif choice == "7":
+                from core.spacemakers import clean_old_backups, scan_old_backups
+
+                _scan_delete("old backup files", scan_old_backups, clean_old_backups)
+            else:
+                err(t("app.unknown_option"))
+                pause()
+        except Exception as exc:
+            err(str(exc))
+            pause()
+
+
 # ── 16. LOGS ────────────────────────────────────────────────
 
 def menu_logs(logger: CleanerLogger):
@@ -3307,10 +3534,14 @@ def menu_duplicates(logger: CleanerLogger):
                 min_kb = int(threshold_raw) if threshold_raw else 4
             except ValueError:
                 min_kb = 4
-            info(f"Scanning '{root}' for duplicates (min {min_kb} KB)…")
+            from core.scanfilter import ScanFilter
+            _sf = ScanFilter().load()
+            _filter_note = f"  {DIM}(filtry aktivní){RST}" if _sf.is_active() else ""
+            info(f"Scanning '{root}' for duplicates (min {min_kb} KB)…{_filter_note}")
             try:
                 from core.duplicates import find_duplicates, delete_files
-                groups = find_duplicates(root, min_size=min_kb * 1024, logger=logger)
+                groups = find_duplicates(root, min_size=min_kb * 1024,
+                                         scan_filter=_sf, logger=logger)
             except Exception as e:
                 err(str(e)); pause(); continue
 
@@ -3386,10 +3617,16 @@ def menu_large_files(logger: CleanerLogger):
         except ValueError:
             min_mb = 100
 
-        info(f"Scanning '{root}' for files ≥ {min_mb} MB…")
+        from core.scanfilter import ScanFilter
+        _sf = ScanFilter().load()
+        if _sf.is_active():
+            info(f"Scanning '{root}' for files ≥ {min_mb} MB…  {DIM}(filtry aktivní){RST}")
+        else:
+            info(f"Scanning '{root}' for files ≥ {min_mb} MB…")
         try:
             from core.largefile import find_large_files, delete_file as lf_delete
-            files = find_large_files(root, min_bytes=min_mb * 1024 * 1024, logger=logger)
+            files = find_large_files(root, min_bytes=min_mb * 1024 * 1024,
+                                     scan_filter=_sf, logger=logger)
         except Exception as e:
             err(str(e)); pause(); continue
 
@@ -7993,6 +8230,158 @@ def menu_startupaudit(logger):
             pause()
 
 
+def menu_scan_filters(logger):
+    from core.scanfilter import (ScanFilter, PRESET_FOLDERS, PRESET_EXTENSIONS,
+                                  PRESET_LABELS, FOLDER_PRESETS, EXT_PRESETS)
+
+    sf = ScanFilter().load()
+
+    def _status(key: str, active_list: list) -> str:
+        return f"{G}ZAP{RST}" if key in active_list else f"{DIM}vyp{RST}"
+
+    def _show():
+        clr(); hdr(t("menu.scan_filters"))
+        active = f"{G}AKTIVNÍ{RST}" if sf.is_active() else f"{DIM}neaktivní{RST}"
+        print(f"  Stav filtrů: {active}\n")
+
+        print(f"  {C}── Herní klienti a složky ──────────────────────────{RST}")
+        game_keys = ["steam", "epic", "gog", "ea", "ubisoft", "xbox"]
+        for i, key in enumerate(game_keys):
+            st = _status(key, sf.active_folder_presets)
+            print(f"  {C}[f{i+1}]{RST} {st}  {PRESET_LABELS[key]}")
+
+        print(f"\n  {C}── Vývojářské složky ───────────────────────────────{RST}")
+        dev_keys = ["node_modules", "git", "venv", "build"]
+        for i, key in enumerate(dev_keys):
+            st = _status(key, sf.active_folder_presets)
+            print(f"  {C}[d{i+1}]{RST} {st}  {PRESET_LABELS[key]}")
+
+        sys_keys = ["system_win", "system_mac", "system_linux"]
+        for i, key in enumerate(sys_keys):
+            st = _status(key, sf.active_folder_presets)
+            print(f"  {C}[s{i+1}]{RST} {st}  {PRESET_LABELS[key]}")
+
+        print(f"\n  {C}── Přípony souborů ─────────────────────────────────{RST}")
+        for i, key in enumerate(EXT_PRESETS):
+            st = _status(key, sf.active_ext_presets)
+            exts = ", ".join(PRESET_EXTENSIONS[key][:5])
+            if len(PRESET_EXTENSIONS[key]) > 5:
+                exts += "…"
+            print(f"  {C}[e{i+1}]{RST} {st}  {PRESET_LABELS[key]}  {DIM}({exts}){RST}")
+
+        print(f"\n  {C}── Vlastní pravidla ─────────────────────────────────{RST}")
+        if sf.custom_folders:
+            print(f"  Složky:    {', '.join(sf.custom_folders)}")
+        if sf.custom_extensions:
+            print(f"  Přípony:   {', '.join(sf.custom_extensions)}")
+        if sf.custom_paths:
+            print(f"  Cesty:     {', '.join(sf.custom_paths)}")
+        if sf.min_size_mb or sf.max_size_mb:
+            mn = f"min {sf.min_size_mb} MB" if sf.min_size_mb else ""
+            mx = f"max {sf.max_size_mb} MB" if sf.max_size_mb else ""
+            print(f"  Velikost:  {mn}  {mx}")
+
+        print(f"\n  {C}[a]{RST} Přidat vlastní složku   "
+              f"{C}[b]{RST} Přidat příponu   "
+              f"{C}[c]{RST} Přidat cestu")
+        print(f"  {C}[r]{RST} Odebrat vlastní pravidlo   "
+              f"{C}[z]{RST} Reset vše   "
+              f"{C}[v]{RST} Velikostní limit")
+        print(f"  {C}[0]{RST} {t('app.back')}")
+
+    game_keys  = ["steam", "epic", "gog", "ea", "ubisoft", "xbox"]
+    dev_keys   = ["node_modules", "git", "venv", "build"]
+    sys_keys   = ["system_win", "system_mac", "system_linux"]
+
+    while True:
+        _show()
+        ch = prompt(t("app.choice")).strip().lower()
+
+        if ch == "0":
+            break
+
+        # Toggle folder presets
+        elif ch.startswith("f") and ch[1:].isdigit():
+            idx = int(ch[1:]) - 1
+            if 0 <= idx < len(game_keys):
+                enabled = sf.toggle_folder_preset(game_keys[idx])
+                sf.save()
+                ok(f"{PRESET_LABELS[game_keys[idx]]}: {'ZAP' if enabled else 'VYP'}")
+        elif ch.startswith("d") and ch[1:].isdigit():
+            idx = int(ch[1:]) - 1
+            if 0 <= idx < len(dev_keys):
+                enabled = sf.toggle_folder_preset(dev_keys[idx])
+                sf.save()
+                ok(f"{PRESET_LABELS[dev_keys[idx]]}: {'ZAP' if enabled else 'VYP'}")
+        elif ch.startswith("s") and ch[1:].isdigit():
+            idx = int(ch[1:]) - 1
+            if 0 <= idx < len(sys_keys):
+                enabled = sf.toggle_folder_preset(sys_keys[idx])
+                sf.save()
+                ok(f"{PRESET_LABELS[sys_keys[idx]]}: {'ZAP' if enabled else 'VYP'}")
+
+        # Toggle extension presets
+        elif ch.startswith("e") and ch[1:].isdigit():
+            idx = int(ch[1:]) - 1
+            if 0 <= idx < len(EXT_PRESETS):
+                enabled = sf.toggle_ext_preset(EXT_PRESETS[idx])
+                sf.save()
+                ok(f"{PRESET_LABELS[EXT_PRESETS[idx]]}: {'ZAP' if enabled else 'VYP'}")
+
+        # Custom rules
+        elif ch == "a":
+            name = prompt("Název složky k ignorování (např. MyGames): ").strip()
+            if name:
+                sf.add_custom_folder(name); sf.save()
+                ok(f"Přidána složka: {name}")
+        elif ch == "b":
+            ext = prompt("Přípona k ignorování (např. .mp4): ").strip()
+            if ext:
+                sf.add_custom_ext(ext); sf.save()
+                ok(f"Přidána přípona: {ext}")
+        elif ch == "c":
+            path = prompt("Cesta k ignorování (celý prefix, např. /mnt/nas): ").strip().strip('"')
+            if path:
+                sf.add_custom_path(path); sf.save()
+                ok(f"Přidána cesta: {path}")
+        elif ch == "r":
+            sep()
+            if sf.custom_folders:
+                print(f"  Složky: {', '.join(f'[F{i}]={v}' for i,v in enumerate(sf.custom_folders))}")
+            if sf.custom_extensions:
+                print(f"  Přípony: {', '.join(f'[E{i}]={v}' for i,v in enumerate(sf.custom_extensions))}")
+            if sf.custom_paths:
+                print(f"  Cesty: {', '.join(f'[P{i}]={v}' for i,v in enumerate(sf.custom_paths))}")
+            what = prompt("Co odebrat? (F0, E1, P0 …): ").strip().upper()
+            try:
+                kind, idx2 = what[0], int(what[1:])
+                if kind == "F":
+                    item = sf.custom_folders[idx2]
+                    sf.remove_custom_folder(item); sf.save(); ok(f"Odebráno: {item}")
+                elif kind == "E":
+                    item = sf.custom_extensions[idx2]
+                    sf.remove_custom_ext(item); sf.save(); ok(f"Odebráno: {item}")
+                elif kind == "P":
+                    item = sf.custom_paths[idx2]
+                    sf.remove_custom_path(item); sf.save(); ok(f"Odebráno: {item}")
+            except (IndexError, ValueError):
+                err("Neplatná volba.")
+        elif ch == "v":
+            mn_s = prompt(f"Min. velikost MB (0=vypnuto) [{sf.min_size_mb}]: ").strip()
+            mx_s = prompt(f"Max. velikost MB (0=vypnuto) [{sf.max_size_mb}]: ").strip()
+            mn = int(mn_s) if mn_s.isdigit() else sf.min_size_mb
+            mx = int(mx_s) if mx_s.isdigit() else sf.max_size_mb
+            sf.set_size_limits(mn, mx); sf.save()
+            ok(f"Limit nastaven: min={mn} MB  max={mx} MB")
+        elif ch == "z":
+            confirm = prompt("Reset všech filtrů? [ano/n]: ").strip().lower()
+            if confirm in ("ano", "yes", "a", "y"):
+                sf.reset(); sf.save(); ok("Filtry resetovány.")
+
+        if ch != "0":
+            import time as _t; _t.sleep(0.5)
+
+
 def menu_sys_dashboard(logger):
     from core import sysmonitor as _sm
     import time as _time
@@ -8177,7 +8566,9 @@ def menu_disk_analyzer(logger):
                 scanned_box[0] = n
                 print(f"\r  {DIM}Prošlo souborů: {n}  {path[-50:]}{RST}  ", end="", flush=True)
             try:
-                r = _da.analyze(root, top_n=top_n, progress_cb=_prog)
+                from core.scanfilter import ScanFilter as _SF
+                _sf2 = _SF().load()
+                r = _da.analyze(root, top_n=top_n, scan_filter=_sf2, progress_cb=_prog)
                 print()
                 sep("═")
                 print(f"  Celkem:  {_da.fmt_size(r['total_bytes'])}  ({r['file_count']} souborů)")
@@ -8314,6 +8705,974 @@ def menu_code_fmt(logger):
                     break
             if lines:
                 _do_fmt("\n".join(lines), "auto", "<stdin>")
+
+
+# ── Wi-Fi Password Viewer ────────────────────────────────────
+
+def menu_wifi_passwords(logger: CleanerLogger):
+    from core.wifipasswords import list_profiles
+    while True:
+        header()
+        print(f"  {B}Wi-Fi Password Viewer{RST}\n")
+        print(f"  {C}[1]{RST} Show saved Wi-Fi profiles & passwords")
+        print(f"  {C}[0]{RST} Back\n")
+        ch = prompt("Choice: ").strip()
+        if ch == "0":
+            break
+        elif ch == "1":
+            info("Reading saved Wi-Fi profiles...")
+            profiles = list_profiles()
+            if not profiles:
+                warn("No Wi-Fi profiles found.")
+                pause(); continue
+            print()
+            for p in profiles:
+                ssid  = p.get("ssid", "?")
+                auth  = p.get("auth", "")
+                pw    = p.get("password", "")
+                iface = p.get("interface", "")
+                pw_str = pw if pw else f"{DIM}[no password / enterprise]{RST}"
+                print(f"  {G}{ssid}{RST}  {DIM}{auth}{RST}  {iface}")
+                print(f"    Password: {pw_str}")
+            print()
+            logger.log("wifi_passwords", "wifipasswords", f"profiles={len(profiles)}")
+            pause()
+        else:
+            err(t("app.unknown_option")); pause()
+
+
+# ── DNS Recon ────────────────────────────────────────────────
+
+def menu_dns_recon(logger: CleanerLogger):
+    from core.dnsrecon import lookup, all_records, zone_transfer, bruteforce_subdomains
+    while True:
+        header()
+        print(f"  {B}DNS Recon{RST}\n")
+        print(f"  {C}[1]{RST} Lookup (A / AAAA / MX / NS / TXT / SOA)")
+        print(f"  {C}[2]{RST} All records for a domain")
+        print(f"  {C}[3]{RST} Zone transfer attempt")
+        print(f"  {C}[4]{RST} Subdomain bruteforce")
+        print(f"  {C}[0]{RST} Back\n")
+        ch = prompt("Choice: ").strip()
+        if ch == "0":
+            break
+        elif ch == "1":
+            domain = prompt("Domain: ").strip()
+            rtype  = prompt("Type [A]: ").strip().upper() or "A"
+            if not domain: continue
+            info(f"Querying {rtype} for {domain}...")
+            res = lookup(domain, rtype)
+            print()
+            if "error" in res:
+                err(res["error"])
+            else:
+                for r in res.get("records", []):
+                    print(f"  {G}{r}{RST}")
+            print()
+            logger.log("dns_recon", "dnsrecon", f"domain={domain} type={rtype}")
+            pause()
+        elif ch == "2":
+            domain = prompt("Domain: ").strip()
+            if not domain: continue
+            info("Querying all common record types...")
+            res = all_records(domain)
+            print()
+            for rtype, records in res.items():
+                if records:
+                    print(f"  {C}{rtype}{RST}: {', '.join(str(r) for r in records[:5])}")
+            print()
+            logger.log("dns_recon", "dnsrecon", f"domain={domain} all_records")
+            pause()
+        elif ch == "3":
+            domain = prompt("Domain: ").strip()
+            if not domain: continue
+            info("Attempting zone transfer (AXFR)...")
+            res = zone_transfer(domain)
+            print()
+            if res.get("success"):
+                ok("Zone transfer succeeded!")
+                for rec in res.get("records", [])[:30]:
+                    print(f"  {rec}")
+            else:
+                warn(f"Zone transfer refused: {res.get('error','')}")
+            print()
+            logger.log("dns_recon", "dnsrecon", f"zone_transfer={domain}")
+            pause()
+        elif ch == "4":
+            domain = prompt("Domain: ").strip()
+            wl = prompt("Wordlist file (Enter = built-in): ").strip().strip('"')
+            if not domain: continue
+            info("Bruteforcing subdomains...")
+            res = bruteforce_subdomains(domain, wordlist_path=wl or None)
+            found = res.get("found", [])
+            print()
+            if found:
+                ok(f"Found {len(found)} subdomain(s):")
+                for s in found:
+                    print(f"  {G}{s}{RST}")
+            else:
+                warn("No subdomains found.")
+            print()
+            logger.log("dns_recon", "dnsrecon", f"bruteforce={domain} found={len(found)}")
+            pause()
+        else:
+            err(t("app.unknown_option")); pause()
+
+
+# ── HTTP Security Scanner ─────────────────────────────────────
+
+def menu_http_scan(logger: CleanerLogger):
+    from core.httpscan import scan
+    while True:
+        header()
+        print(f"  {B}HTTP Security Scanner{RST}\n")
+        print(f"  {C}[1]{RST} Scan a URL for security headers & info leaks")
+        print(f"  {C}[0]{RST} Back\n")
+        ch = prompt("Choice: ").strip()
+        if ch == "0":
+            break
+        elif ch == "1":
+            url = prompt("URL (e.g. https://example.com): ").strip()
+            if not url: continue
+            if not url.startswith("http"):
+                url = "https://" + url
+            info(f"Scanning {url}...")
+            res = scan(url)
+            print()
+            if "error" in res:
+                err(res["error"]); pause(); continue
+            grade = res.get("grade", "?")
+            grade_color = G if grade == "A" else (Y if grade in ("B","C") else R)
+            print(f"  Grade: {grade_color}{B}{grade}{RST}  ({res.get('score',0)}/100)")
+            print(f"  URL: {res.get('final_url', url)}")
+            print(f"  Server: {res.get('server','?')}   Status: {res.get('status_code','?')}")
+            print()
+            print(f"  {C}Security Headers:{RST}")
+            for hdr, val in res.get("headers", {}).items():
+                marker = f"{G}✓{RST}" if val else f"{R}✗{RST}"
+                print(f"    {marker} {hdr}")
+            leaks = res.get("info_leaks", [])
+            if leaks:
+                print(f"\n  {Y}Info Leaks:{RST}")
+                for l in leaks:
+                    print(f"    {Y}!{RST} {l}")
+            cookies = res.get("cookie_flags", [])
+            if cookies:
+                print(f"\n  {C}Cookies:{RST}")
+                for c in cookies:
+                    print(f"    {c}")
+            print()
+            logger.log("http_scan", "httpscan", f"url={url} grade={grade}")
+            pause()
+        else:
+            err(t("app.unknown_option")); pause()
+
+
+# ── Network Share Manager ─────────────────────────────────────
+
+def menu_shares_mgr(logger: CleanerLogger):
+    from core.sharesmgr import list_shares, add_share, remove_share
+    while True:
+        header()
+        print(f"  {B}Network Share Manager{RST}\n")
+        print(f"  {C}[1]{RST} List shares")
+        print(f"  {C}[2]{RST} Add share")
+        print(f"  {C}[3]{RST} Remove share")
+        print(f"  {C}[0]{RST} Back\n")
+        ch = prompt("Choice: ").strip()
+        if ch == "0":
+            break
+        elif ch == "1":
+            info("Loading shares...")
+            shares = list_shares()
+            print()
+            if not shares:
+                warn("No shares found.")
+            for s in shares:
+                if "error" in s:
+                    err(s["error"]); continue
+                name = s.get("name","?")
+                path = s.get("path","?")
+                desc = s.get("description","")
+                print(f"  {G}{name}{RST}  →  {path}  {DIM}{desc}{RST}")
+            print()
+            logger.log("shares_mgr", "sharesmgr", "list")
+            pause()
+        elif ch == "2":
+            name = prompt("Share name: ").strip()
+            path = prompt("Directory path: ").strip().strip('"')
+            desc = prompt("Description [optional]: ").strip()
+            if not name or not path: continue
+            res = add_share(name, path, desc)
+            if res.get("ok"):
+                ok(f"Share '{name}' created.")
+            else:
+                err(res.get("output","Failed."))
+            logger.log("shares_mgr", "sharesmgr", f"add={name}")
+            pause()
+        elif ch == "3":
+            name = prompt("Share name to remove: ").strip()
+            if not name: continue
+            res = remove_share(name)
+            if res.get("ok"):
+                ok(f"Share '{name}' removed.")
+            else:
+                err(res.get("output","Failed."))
+            logger.log("shares_mgr", "sharesmgr", f"remove={name}")
+            pause()
+        else:
+            err(t("app.unknown_option")); pause()
+
+
+# ── Proxy Manager ─────────────────────────────────────────────
+
+def menu_proxy_mgr(logger: CleanerLogger):
+    from core.proxymgr import get_proxy, set_proxy, clear_proxy
+    while True:
+        header()
+        print(f"  {B}Proxy Manager{RST}\n")
+        print(f"  {C}[1]{RST} Show current proxy")
+        print(f"  {C}[2]{RST} Set proxy")
+        print(f"  {C}[3]{RST} Clear proxy")
+        print(f"  {C}[0]{RST} Back\n")
+        ch = prompt("Choice: ").strip()
+        if ch == "0":
+            break
+        elif ch == "1":
+            res = get_proxy()
+            print()
+            if res.get("enabled"):
+                print(f"  {G}Proxy: {res.get('server','')}:{res.get('port','')}{RST}")
+                bypass = res.get("bypass","")
+                if bypass:
+                    print(f"  Bypass: {DIM}{bypass}{RST}")
+            else:
+                print(f"  {DIM}No proxy configured.{RST}")
+            print()
+            pause()
+        elif ch == "2":
+            server = prompt("Proxy server (host or host:port): ").strip()
+            if not server: continue
+            if ":" in server:
+                host, port = server.rsplit(":", 1)
+            else:
+                host = server
+                port = prompt("Port [8080]: ").strip() or "8080"
+            bypass = prompt("Bypass list [optional]: ").strip()
+            res = set_proxy(host, port, bypass or None)
+            if res.get("ok"):
+                ok(f"Proxy set to {host}:{port}.")
+            else:
+                err(res.get("output","Failed."))
+            logger.log("proxy_mgr", "proxymgr", f"set={host}:{port}")
+            pause()
+        elif ch == "3":
+            res = clear_proxy()
+            if res.get("ok"):
+                ok("Proxy cleared.")
+            else:
+                err(res.get("output","Failed."))
+            logger.log("proxy_mgr", "proxymgr", "clear")
+            pause()
+        else:
+            err(t("app.unknown_option")); pause()
+
+
+# ── Hardware Info ─────────────────────────────────────────────
+
+def menu_hw_info(logger: CleanerLogger):
+    from core.hwinfo import full_report
+    while True:
+        header()
+        print(f"  {B}Hardware Info{RST}\n")
+        print(f"  {C}[1]{RST} Full hardware report")
+        print(f"  {C}[0]{RST} Back\n")
+        ch = prompt("Choice: ").strip()
+        if ch == "0":
+            break
+        elif ch == "1":
+            info("Gathering hardware information...")
+            rep = full_report()
+            print()
+            sections = [
+                ("CPU",         rep.get("cpu",{})),
+                ("RAM",         rep.get("ram",{})),
+                ("GPU",         rep.get("gpu",{})),
+                ("Motherboard", rep.get("motherboard",{})),
+            ]
+            for title, data in sections:
+                if not data or data.get("error"):
+                    continue
+                print(f"  {C}{title}{RST}")
+                for k, v in data.items():
+                    if v and k != "error":
+                        print(f"    {DIM}{k}:{RST} {v}")
+            disks = rep.get("disks", [])
+            if disks:
+                print(f"\n  {C}Disks{RST}")
+                for d in disks:
+                    if d.get("error"): continue
+                    print(f"    {G}{d.get('device','?')}{RST} — {d.get('model','')} {DIM}{d.get('size','')}{RST}")
+            print()
+            logger.log("hw_info", "hwinfo", "full_report")
+            pause()
+        else:
+            err(t("app.unknown_option")); pause()
+
+
+# ── Service Manager ───────────────────────────────────────────
+
+def menu_svc_mgr(logger: CleanerLogger):
+    from core.servicemgr import list_services, start_service, stop_service, enable_service, disable_service, service_info
+    _page = 0
+    _page_size = 25
+    _filter = ""
+    _svcs: list = []
+
+    def _load():
+        nonlocal _svcs
+        info("Loading services...")
+        _svcs = list_services(_filter)
+
+    _load()
+    while True:
+        header()
+        print(f"  {B}Service Manager{RST}  {DIM}filter: {_filter or 'all'}{RST}\n")
+        start = _page * _page_size
+        page_svcs = _svcs[start:start+_page_size]
+        for i, s in enumerate(page_svcs, start+1):
+            state = s.get("state","?")
+            col = G if "running" in state.lower() else DIM
+            print(f"  {C}[{i}]{RST} {col}{state:12}{RST} {s.get('name','?')}  {DIM}{s.get('display_name','')[:40]}{RST}")
+        total = len(_svcs)
+        print(f"\n  {DIM}Page {_page+1}/{max(1,(total+_page_size-1)//_page_size)}  Total: {total}{RST}")
+        print(f"\n  {C}[f]{RST} Filter  {C}[n]{RST} Next page  {C}[p]{RST} Prev page")
+        print(f"  {C}[s]{RST} Start  {C}[x]{RST} Stop  {C}[e]{RST} Enable  {C}[d]{RST} Disable")
+        print(f"  {C}[i]{RST} Info  {C}[r]{RST} Refresh  {C}[0]{RST} Back\n")
+        ch = prompt("Choice: ").strip().lower()
+        if ch == "0":
+            break
+        elif ch == "f":
+            _filter = prompt("Filter name (Enter to clear): ").strip()
+            _page = 0; _load()
+        elif ch == "n":
+            if (_page+1)*_page_size < total: _page += 1
+        elif ch == "p":
+            if _page > 0: _page -= 1
+        elif ch == "r":
+            _load()
+        elif ch in ("s","x","e","d","i"):
+            num = prompt("Service # or name: ").strip()
+            try:
+                idx = int(num)-1
+                svc_name = _svcs[idx]["name"]
+            except Exception:
+                svc_name = num
+            if not svc_name: continue
+            if ch == "s":
+                res = start_service(svc_name)
+                (ok if res.get("ok") else err)(res.get("output",""))
+            elif ch == "x":
+                res = stop_service(svc_name)
+                (ok if res.get("ok") else err)(res.get("output",""))
+            elif ch == "e":
+                res = enable_service(svc_name)
+                (ok if res.get("ok") else err)(res.get("output",""))
+            elif ch == "d":
+                res = disable_service(svc_name)
+                (ok if res.get("ok") else err)(res.get("output",""))
+            elif ch == "i":
+                si = service_info(svc_name)
+                print()
+                for k, v in si.items():
+                    print(f"  {DIM}{k}:{RST} {v}")
+                print()
+            logger.log("svc_mgr", "servicemgr", f"action={ch} svc={svc_name}")
+            pause()
+        else:
+            err(t("app.unknown_option")); pause()
+
+
+# ── Event Log Viewer ──────────────────────────────────────────
+
+def menu_event_log(logger: CleanerLogger):
+    from core.eventlog import query, available_logs
+    while True:
+        header()
+        print(f"  {B}Event Log Viewer{RST}\n")
+        print(f"  {C}[1]{RST} Query event log")
+        print(f"  {C}[2]{RST} List available logs")
+        print(f"  {C}[0]{RST} Back\n")
+        ch = prompt("Choice: ").strip()
+        if ch == "0":
+            break
+        elif ch == "1":
+            log_name = prompt("Log [System]: ").strip() or "System"
+            level    = prompt("Level (error/warning/info) [error]: ").strip().lower() or "error"
+            hours_s  = prompt("Last N hours [24]: ").strip()
+            try: hours = int(hours_s)
+            except Exception: hours = 24
+            max_s = prompt("Max events [50]: ").strip()
+            try: max_ev = int(max_s)
+            except Exception: max_ev = 50
+            info(f"Querying '{log_name}'...")
+            events = query(log_name, level, hours, max_ev)
+            print()
+            if not events:
+                warn("No events found.")
+            for ev in events[:max_ev]:
+                if "error" in ev:
+                    err(ev["error"]); break
+                ts  = ev.get("time","?")
+                src = ev.get("source","?")
+                msg = ev.get("message","")[:120]
+                lvl = ev.get("level","").upper()
+                col = R if "ERROR" in lvl or "CRIT" in lvl else (Y if "WARN" in lvl else DIM)
+                print(f"  {col}[{lvl}]{RST} {DIM}{ts}{RST} {src}")
+                if msg:
+                    print(f"    {DIM}{msg}{RST}")
+            print()
+            logger.log("event_log", "eventlog", f"log={log_name} level={level} hours={hours}")
+            pause()
+        elif ch == "2":
+            info("Listing available logs...")
+            logs = available_logs()
+            print()
+            for l in logs[:40]:
+                print(f"  {G}•{RST} {l}")
+            print()
+            pause()
+        else:
+            err(t("app.unknown_option")); pause()
+
+
+# ── Shadow Copy Manager ───────────────────────────────────────
+
+def menu_shadow_copy(logger: CleanerLogger):
+    from core.shadowcopy import list_shadows, create_shadow, delete_shadow, list_volumes_with_shadows
+    import platform as _plat
+    if _plat.system() != "Windows":
+        header()
+        warn("Shadow Copy Manager is Windows-only.")
+        pause(); return
+    while True:
+        header()
+        print(f"  {B}Shadow Copy Manager{RST}\n")
+        print(f"  {C}[1]{RST} List shadow copies")
+        print(f"  {C}[2]{RST} Create shadow copy")
+        print(f"  {C}[3]{RST} Delete shadow copy")
+        print(f"  {C}[4]{RST} Volumes with shadows")
+        print(f"  {C}[0]{RST} Back\n")
+        ch = prompt("Choice: ").strip()
+        if ch == "0":
+            break
+        elif ch == "1":
+            info("Listing shadow copies...")
+            shadows = list_shadows()
+            print()
+            if not shadows:
+                warn("No shadow copies found.")
+            for s in shadows:
+                if "error" in s:
+                    err(s["error"]); break
+                sid = s.get("id","?")[:20]
+                vol = s.get("volume","?")
+                ts  = s.get("created","?")
+                print(f"  {G}{sid}…{RST}  {vol}  {DIM}{ts}{RST}")
+            print()
+            logger.log("shadow_copy", "shadowcopy", "list")
+            pause()
+        elif ch == "2":
+            vol = prompt("Volume (e.g. C:): ").strip() or "C:"
+            info(f"Creating shadow copy of {vol}...")
+            res = create_shadow(vol)
+            if res.get("ok"):
+                ok(f"Shadow copy created.")
+            else:
+                err(res.get("output","Failed."))
+            logger.log("shadow_copy", "shadowcopy", f"create={vol}")
+            pause()
+        elif ch == "3":
+            sid = prompt("Shadow copy ID: ").strip()
+            if not sid: continue
+            res = delete_shadow(sid)
+            if res.get("ok"):
+                ok("Shadow copy deleted.")
+            else:
+                err(res.get("output","Failed."))
+            logger.log("shadow_copy", "shadowcopy", f"delete={sid}")
+            pause()
+        elif ch == "4":
+            info("Querying volumes...")
+            vols = list_volumes_with_shadows()
+            print()
+            for v in vols:
+                vol  = v.get("volume","?")
+                cnt  = v.get("shadow_count",0)
+                print(f"  {G}{vol}{RST}  shadows: {cnt}")
+            print()
+            pause()
+        else:
+            err(t("app.unknown_option")); pause()
+
+
+# ── USB History ───────────────────────────────────────────────
+
+def menu_usb_history(logger: CleanerLogger):
+    from core.usbhistory import list_usb_history
+    while True:
+        header()
+        print(f"  {B}USB History{RST}\n")
+        print(f"  {C}[1]{RST} Show USB device history")
+        print(f"  {C}[0]{RST} Back\n")
+        ch = prompt("Choice: ").strip()
+        if ch == "0":
+            break
+        elif ch == "1":
+            info("Reading USB history...")
+            devices = list_usb_history()
+            print()
+            if not devices:
+                warn("No USB history found.")
+            for d in devices:
+                if "error" in d:
+                    err(d["error"]); continue
+                vendor = d.get("vendor","?")
+                model  = d.get("model","?")
+                serial = d.get("serial","")
+                first  = d.get("first_connected","")
+                last   = d.get("last_connected","")
+                print(f"  {G}{vendor}{RST} / {model}")
+                if serial: print(f"    Serial : {DIM}{serial}{RST}")
+                if first:  print(f"    First  : {DIM}{first}{RST}")
+                if last:   print(f"    Last   : {DIM}{last}{RST}")
+                print()
+            logger.log("usb_history", "usbhistory", f"count={len(devices)}")
+            pause()
+        else:
+            err(t("app.unknown_option")); pause()
+
+
+# ── Windows Activation Info ───────────────────────────────────
+
+def menu_win_activation(logger: CleanerLogger):
+    from core.winactivation import get_info
+    while True:
+        header()
+        print(f"  {B}Windows Activation Info{RST}\n")
+        print(f"  {C}[1]{RST} Show activation status")
+        print(f"  {C}[0]{RST} Back\n")
+        ch = prompt("Choice: ").strip()
+        if ch == "0":
+            break
+        elif ch == "1":
+            info("Querying activation info...")
+            data = get_info()
+            print()
+            if "error" in data:
+                err(data["error"]); pause(); continue
+            for k, v in data.items():
+                if v:
+                    label = k.replace("_"," ").title()
+                    col = G if "licensed" in str(v).lower() or "activated" in str(v).lower() else DIM
+                    print(f"  {DIM}{label}:{RST} {col}{v}{RST}")
+            print()
+            logger.log("win_activation", "winactivation", "query")
+            pause()
+        else:
+            err(t("app.unknown_option")); pause()
+
+
+# ── Git Repo Scanner ──────────────────────────────────────────
+
+def menu_git_scanner(logger: CleanerLogger):
+    from core.gitscanner import find_repos
+    while True:
+        header()
+        print(f"  {B}Git Repo Scanner{RST}\n")
+        print(f"  {C}[1]{RST} Scan directory for Git repos")
+        print(f"  {C}[0]{RST} Back\n")
+        ch = prompt("Choice: ").strip()
+        if ch == "0":
+            break
+        elif ch == "1":
+            from pathlib import Path
+            default_root = str(Path.home())
+            root = prompt(f"Root directory [{default_root}]: ").strip().strip('"') or default_root
+            depth_s = prompt("Max depth [3]: ").strip()
+            try: depth = int(depth_s)
+            except Exception: depth = 3
+            count = [0]
+            def _prog(p):
+                count[0] += 1
+                if count[0] % 20 == 0:
+                    print(f"  {DIM}Scanning… {count[0]} dirs checked{RST}", end="\r")
+            info(f"Scanning {root}...")
+            repos = find_repos(root, depth, progress_cb=_prog)
+            print()
+            if not repos:
+                warn("No Git repositories found.")
+            for r in repos:
+                path   = r.get("path","?")
+                branch = r.get("branch","?")
+                dirty  = " (dirty)" if r.get("dirty") else ""
+                remote = r.get("remote","")
+                last   = r.get("last_commit","")
+                stashes= r.get("stashes",0)
+                status_col = Y if r.get("dirty") else G
+                print(f"  {status_col}●{RST} {path}")
+                print(f"    Branch: {branch}{dirty}  {DIM}{last[:40]}{RST}")
+                if remote: print(f"    Remote: {DIM}{remote}{RST}")
+                if stashes: print(f"    {Y}Stashes: {stashes}{RST}")
+                print()
+            ok(f"Found {len(repos)} repo(s).")
+            logger.log("git_scanner", "gitscanner", f"root={root} found={len(repos)}")
+            pause()
+        else:
+            err(t("app.unknown_option")); pause()
+
+
+# ── Docker Manager ────────────────────────────────────────────
+
+def menu_docker_mgr(logger: CleanerLogger):
+    from core.dockermgr import (is_available, list_containers, list_images,
+                                  list_volumes, container_action, image_action,
+                                  container_logs, system_prune, stats_snapshot)
+    while True:
+        header()
+        print(f"  {B}Docker Manager{RST}\n")
+        if not is_available():
+            warn("Docker daemon is not running or Docker is not installed.")
+            pause(); return
+        print(f"  {C}[1]{RST} List containers")
+        print(f"  {C}[2]{RST} List images")
+        print(f"  {C}[3]{RST} List volumes")
+        print(f"  {C}[4]{RST} Container action (start/stop/restart/rm)")
+        print(f"  {C}[5]{RST} View container logs")
+        print(f"  {C}[6]{RST} Stats snapshot")
+        print(f"  {C}[7]{RST} System prune (remove unused data)")
+        print(f"  {C}[0]{RST} Back\n")
+        ch = prompt("Choice: ").strip()
+        if ch == "0":
+            break
+        elif ch == "1":
+            containers = list_containers()
+            print()
+            for c in containers:
+                if "error" in c: err(c["error"]); continue
+                name   = c.get("Names","?")
+                image  = c.get("Image","?")
+                status = c.get("Status","?")
+                cid    = c.get("ID","?")[:12]
+                col = G if "Up" in status else DIM
+                print(f"  {col}{name}{RST}  {DIM}{cid}{RST}  {image}")
+                print(f"    {col}{status}{RST}")
+            print()
+            logger.log("docker_mgr", "dockermgr", "list_containers")
+            pause()
+        elif ch == "2":
+            images = list_images()
+            print()
+            for img in images:
+                if "error" in img: err(img["error"]); continue
+                print(f"  {G}{img.get('Repository','')}:{img.get('Tag','')}{RST}  {DIM}{img.get('ID','')[:12]}  {img.get('Size','')}{RST}")
+            print()
+            logger.log("docker_mgr", "dockermgr", "list_images")
+            pause()
+        elif ch == "3":
+            vols = list_volumes()
+            print()
+            for v in vols:
+                if "error" in v: err(v["error"]); continue
+                print(f"  {G}{v.get('Name','?')}{RST}  {DIM}{v.get('Driver','')}{RST}")
+            print()
+            pause()
+        elif ch == "4":
+            cid    = prompt("Container ID or name: ").strip()
+            action = prompt("Action (start/stop/restart/rm/pause/unpause): ").strip()
+            if not cid or not action: continue
+            res = container_action(cid, action)
+            (ok if res.get("ok") else err)(res.get("output",""))
+            logger.log("docker_mgr", "dockermgr", f"action={action} container={cid}")
+            pause()
+        elif ch == "5":
+            cid  = prompt("Container ID or name: ").strip()
+            tail = prompt("Last N lines [50]: ").strip()
+            try: n = int(tail)
+            except Exception: n = 50
+            if not cid: continue
+            logs = container_logs(cid, n)
+            print()
+            for line in logs.splitlines()[-60:]:
+                print(f"  {DIM}{line}{RST}")
+            print()
+            pause()
+        elif ch == "6":
+            stats = stats_snapshot()
+            print()
+            for s in stats:
+                print(f"  {G}{s.get('Name','?')}{RST}  CPU:{s.get('CPUPerc','?')}  Mem:{s.get('MemUsage','?')}")
+            print()
+            pause()
+        elif ch == "7":
+            with_vols = prompt("Include volumes? [y/N]: ").strip().lower() == "y"
+            info("Pruning Docker...")
+            res = system_prune(volumes=with_vols)
+            if res.get("ok"):
+                ok(res.get("output","Done."))
+            else:
+                err(res.get("output","Failed."))
+            logger.log("docker_mgr", "dockermgr", f"prune volumes={with_vols}")
+            pause()
+        else:
+            err(t("app.unknown_option")); pause()
+
+
+# ── Dependency Walker ─────────────────────────────────────────
+
+def menu_dep_walker(logger: CleanerLogger):
+    from core.depwalker import analyze
+    while True:
+        header()
+        print(f"  {B}Dependency Walker{RST}\n")
+        print(f"  {C}[1]{RST} Analyze binary dependencies")
+        print(f"  {C}[0]{RST} Back\n")
+        ch = prompt("Choice: ").strip()
+        if ch == "0":
+            break
+        elif ch == "1":
+            path = prompt("Binary path (.exe/.dll/.so/.dylib): ").strip().strip('"')
+            if not path: continue
+            info(f"Analyzing {path}...")
+            res = analyze(path)
+            print()
+            if res.get("error"):
+                err(res["error"]); pause(); continue
+            deps    = res.get("deps",[])
+            missing = res.get("missing",[])
+            print(f"  Platform: {res.get('platform','?')}  Deps: {len(deps)}  Missing: {len(missing)}")
+            print()
+            for d in deps[:50]:
+                found = d.get("found", True)
+                col   = G if found else R
+                lib   = d.get("lib","?")
+                dpath = d.get("path","")
+                print(f"  {col}{'✓' if found else '✗'}{RST} {lib}  {DIM}{dpath}{RST}")
+            if missing:
+                print(f"\n  {R}Missing libraries:{RST}")
+                for m in missing:
+                    print(f"    {R}✗ {m}{RST}")
+            print()
+            logger.log("dep_walker", "depwalker", f"path={path} missing={len(missing)}")
+            pause()
+        else:
+            err(t("app.unknown_option")); pause()
+
+
+# ── WSL Manager ───────────────────────────────────────────────
+
+def menu_wsl_mgr(logger: CleanerLogger):
+    from core.wslmgr import (is_available, list_distros, start_distro, stop_distro,
+                               shutdown_all, export_distro, import_distro,
+                               unregister_distro, set_default, run_command, update_wsl)
+    import platform as _plat
+    if _plat.system() != "Windows":
+        header()
+        warn("WSL Manager is Windows-only.")
+        pause(); return
+    while True:
+        header()
+        print(f"  {B}WSL Manager{RST}\n")
+        if not is_available():
+            warn("WSL is not available on this system.")
+            pause(); return
+        distros = list_distros()
+        print(f"  {C}Installed distros:{RST}")
+        for d in distros:
+            if "error" in d:
+                err(d["error"]); break
+            default_mark = f" {G}(default){RST}" if d.get("default") else ""
+            state_col = G if d.get("state","").lower() == "running" else DIM
+            print(f"    {state_col}{d.get('name','?')}{RST}  v{d.get('version','?')}  {state_col}{d.get('state','?')}{RST}{default_mark}")
+        print()
+        print(f"  {C}[1]{RST} Start distro  {C}[2]{RST} Stop distro  {C}[3]{RST} Shutdown all")
+        print(f"  {C}[4]{RST} Set default  {C}[5]{RST} Run command  {C}[6]{RST} Export")
+        print(f"  {C}[7]{RST} Import  {C}[8]{RST} Unregister  {C}[9]{RST} Update WSL")
+        print(f"  {C}[0]{RST} Back\n")
+        ch = prompt("Choice: ").strip()
+        if ch == "0":
+            break
+        elif ch in ("1","2","4","5","6","7","8"):
+            name = prompt("Distro name: ").strip()
+            if not name: continue
+            if ch == "1":
+                res = start_distro(name)
+                (ok if res.get("ok") else err)(res.get("output",""))
+            elif ch == "2":
+                res = stop_distro(name)
+                (ok if res.get("ok") else err)(res.get("output",""))
+            elif ch == "4":
+                res = set_default(name)
+                (ok if res.get("ok") else err)(res.get("output",""))
+            elif ch == "5":
+                cmd = prompt("Command: ").strip()
+                if not cmd: continue
+                res = run_command(name, cmd)
+                print()
+                if res.get("output"):
+                    print(res["output"])
+                if res.get("error"):
+                    print(f"{R}{res['error']}{RST}")
+                print()
+            elif ch == "6":
+                outpath = prompt("Output .tar path: ").strip().strip('"')
+                if not outpath: continue
+                info("Exporting (may take a while)...")
+                res = export_distro(name, outpath)
+                (ok if res.get("ok") else err)(res.get("output",""))
+            elif ch == "7":
+                ipath = prompt("Install path: ").strip().strip('"')
+                tpath = prompt("TAR path: ").strip().strip('"')
+                if not ipath or not tpath: continue
+                info("Importing...")
+                res = import_distro(name, ipath, tpath)
+                (ok if res.get("ok") else err)(res.get("output",""))
+            elif ch == "8":
+                confirm = prompt(f"Unregister '{name}'? Type YES: ").strip()
+                if confirm == "YES":
+                    res = unregister_distro(name)
+                    (ok if res.get("ok") else err)(res.get("output",""))
+            logger.log("wsl_mgr", "wslmgr", f"action={ch} distro={name}")
+            pause()
+        elif ch == "3":
+            res = shutdown_all()
+            (ok if res.get("ok") else err)(res.get("output",""))
+            logger.log("wsl_mgr", "wslmgr", "shutdown_all")
+            pause()
+        elif ch == "9":
+            info("Updating WSL...")
+            res = update_wsl()
+            (ok if res.get("ok") else err)(res.get("output",""))
+            logger.log("wsl_mgr", "wslmgr", "update")
+            pause()
+        else:
+            err(t("app.unknown_option")); pause()
+
+
+# ── Certificate Viewer ────────────────────────────────────────
+
+def menu_cert_viewer(logger: CleanerLogger):
+    from core.certviewer import check_host, list_system_certs
+    while True:
+        header()
+        print(f"  {B}Certificate Viewer{RST}\n")
+        print(f"  {C}[1]{RST} Check TLS certificate of a host")
+        print(f"  {C}[2]{RST} List system certificates")
+        print(f"  {C}[0]{RST} Back\n")
+        ch = prompt("Choice: ").strip()
+        if ch == "0":
+            break
+        elif ch == "1":
+            host = prompt("Host (e.g. example.com): ").strip()
+            port_s = prompt("Port [443]: ").strip()
+            try: port = int(port_s)
+            except Exception: port = 443
+            if not host: continue
+            info(f"Connecting to {host}:{port}...")
+            res = check_host(host, port)
+            print()
+            if not res.get("valid"):
+                err(f"Invalid: {res.get('error','?')}")
+                pause(); continue
+            days = res.get("days_left",0)
+            exp_col = R if res.get("expired") else (Y if res.get("expiry_warn") else G)
+            print(f"  Subject : {G}{res.get('subject_cn','?')}{RST}")
+            print(f"  Issuer  : {res.get('issuer_cn','?')}  {DIM}({res.get('issuer_org','')}){RST}")
+            print(f"  Valid   : {res.get('not_before','?')}  →  {res.get('not_after','?')}")
+            print(f"  Expires : {exp_col}{days} day(s) left{RST}")
+            print(f"  Protocol: {res.get('protocol','?')}  Cipher: {DIM}{res.get('cipher','?')}{RST}")
+            sans = res.get("sans",[])
+            if sans:
+                print(f"  SANs    : {', '.join(sans[:5])}")
+            print()
+            logger.log("cert_viewer", "certviewer", f"host={host}:{port} days={days}")
+            pause()
+        elif ch == "2":
+            info("Reading system certificate store...")
+            certs = list_system_certs()
+            print()
+            for c in certs[:40]:
+                subj  = c.get("subject","?")[:60]
+                days  = c.get("days_left")
+                store = c.get("store","")
+                exp   = c.get("expired",False)
+                col   = R if exp else DIM
+                days_str = f"  {col}{days}d{RST}" if days is not None else ""
+                print(f"  {G}•{RST} {subj}  {DIM}{store}{RST}{days_str}")
+            print()
+            logger.log("cert_viewer", "certviewer", f"system_certs count={len(certs)}")
+            pause()
+        else:
+            err(t("app.unknown_option")); pause()
+
+
+# ── Browser Password Exporter ─────────────────────────────────
+
+def menu_browser_pwd(logger: CleanerLogger):
+    from core.browserpwd import read_chrome_logins, read_firefox_logins, export_all
+    while True:
+        header()
+        print(f"  {B}Browser Password Exporter{RST}")
+        print(f"  {DIM}Reads YOUR OWN browser saved passwords for migration/backup.{RST}\n")
+        print(f"  {C}[1]{RST} Show Chrome / Chromium logins")
+        print(f"  {C}[2]{RST} Show Firefox logins (metadata only)")
+        print(f"  {C}[3]{RST} Export all to CSV")
+        print(f"  {C}[0]{RST} Back\n")
+        ch = prompt("Choice: ").strip()
+        if ch == "0":
+            break
+        elif ch == "1":
+            info("Reading Chrome login database...")
+            logins = read_chrome_logins()
+            print()
+            if not logins:
+                warn("No Chrome logins found.")
+            for e in logins:
+                if "error" in e:
+                    err(e["error"]); continue
+                print(f"  {G}{e.get('url','?')}{RST}")
+                print(f"    User: {e.get('username','?')}  Pass: {DIM}{e.get('password','?')}{RST}")
+            print()
+            logger.log("browser_pwd", "browserpwd", f"chrome logins={len(logins)}")
+            pause()
+        elif ch == "2":
+            info("Reading Firefox logins.json...")
+            logins = read_firefox_logins()
+            print()
+            if not logins:
+                warn("No Firefox logins found.")
+            for e in logins:
+                if "error" in e:
+                    err(e["error"]); continue
+                print(f"  {G}{e.get('url','?')}{RST}  {DIM}profile: {e.get('profile','?')}{RST}")
+                print(f"    User: {DIM}{e.get('username','?')}{RST}  Pass: {DIM}{e.get('password','?')}{RST}")
+            print()
+            logger.log("browser_pwd", "browserpwd", f"firefox logins={len(logins)}")
+            pause()
+        elif ch == "3":
+            outpath = prompt("Output CSV path (Enter = skip): ").strip().strip('"')
+            info("Exporting...")
+            res = export_all(outpath or None)
+            chrome_n  = res.get("chrome",0)
+            firefox_n = res.get("firefox",0)
+            total_n   = res.get("total",0)
+            ok(f"Chrome: {chrome_n}  Firefox: {firefox_n}  Total: {total_n}")
+            if outpath:
+                ok(f"Saved → {outpath}")
+            logger.log("browser_pwd", "browserpwd", f"export total={total_n}")
+            pause()
+        else:
+            err(t("app.unknown_option")); pause()
 
 
 # ── ENTRY POINT ─────────────────────────────────────────────

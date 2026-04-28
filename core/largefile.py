@@ -3,14 +3,20 @@
 import os
 
 
-def find_large_files(root: str, min_bytes: int = 100 * 1024 * 1024, logger=None) -> list[dict]:
-    """Return list of files >= min_bytes, sorted largest first. Each entry: {path, size, modified}."""
+def find_large_files(root: str, min_bytes: int = 100 * 1024 * 1024,
+                     scan_filter=None, logger=None) -> list[dict]:
+    """Return list of files >= min_bytes, sorted largest first."""
     results = []
-    for dirpath, _, filenames in os.walk(root):
+    for dirpath, dirnames, filenames in os.walk(root):
+        if scan_filter:
+            dirnames[:] = [d for d in dirnames
+                           if not scan_filter.should_skip_dir(os.path.join(dirpath, d))]
         for name in filenames:
             fp = os.path.join(dirpath, name)
             try:
                 st = os.stat(fp)
+                if scan_filter and scan_filter.should_skip_file(fp, st.st_size):
+                    continue
                 if st.st_size >= min_bytes:
                     results.append({"path": fp, "size": st.st_size, "modified": st.st_mtime})
             except OSError:

@@ -215,10 +215,13 @@ def _platform_info() -> dict[str, Any]:
 
 
 _GROUPS = {
-    "essential": "Essential Tweaks",
-    "advanced": "Advanced Tweaks (Caution)",
+    "essential":   "Essential Tweaks",
+    "advanced":    "Advanced Tweaks (Caution)",
     "preferences": "Customize Preferences",
-    "performance": "Performance Plans",
+    "performance": "Performance Tweaks",
+    "privacy":     "Privacy Tweaks",
+    "gaming":      "Gaming Tweaks",
+    "security":    "Security Hardening",
 }
 
 
@@ -2099,6 +2102,563 @@ def _tw_remove_ultimate_perf(logger) -> tuple[bool, str]:
 
 
 # ---------------------------------------------------------------------------
+# New tweaks — Essential additions
+# ---------------------------------------------------------------------------
+
+def _tw_disable_sysmain(logger) -> tuple[bool, str]:
+    if not _is_windows():
+        return _result(False, "Windows only")
+    ok_cfg = _set_service_start("SysMain", "disabled")
+    ok_stop = _stop_service("SysMain")
+    ok = ok_cfg or ok_stop
+    _log(logger, "tweak_sysmain", "Disabled SysMain (Superfetch)", success=ok)
+    return _result(ok, "SysMain (Superfetch) disabled")
+
+
+def _tw_disable_search_indexing(logger) -> tuple[bool, str]:
+    if not _is_windows():
+        return _result(False, "Windows only")
+    ok_cfg = _set_service_start("WSearch", "disabled")
+    ok_stop = _stop_service("WSearch")
+    ok = ok_cfg or ok_stop
+    _log(logger, "tweak_wsearch", "Disabled WSearch indexing", success=ok)
+    return _result(ok, "Windows Search Indexing disabled")
+
+
+def _tw_disable_fast_startup(logger) -> tuple[bool, str]:
+    if not _is_windows():
+        return _result(False, "Windows only")
+    ok = _set_reg(
+        winreg.HKEY_LOCAL_MACHINE,
+        r"SYSTEM\CurrentControlSet\Control\Session Manager\Power",
+        "HiberbootEnabled", 0, winreg.REG_DWORD,
+    )
+    _log(logger, "tweak_fast_startup", "Disabled Fast Startup", success=ok)
+    return _result(ok, "Fast Startup disabled")
+
+
+def _tw_enable_long_paths(logger) -> tuple[bool, str]:
+    if not _is_windows():
+        return _result(False, "Windows only")
+    ok = _set_reg(
+        winreg.HKEY_LOCAL_MACHINE,
+        r"SYSTEM\CurrentControlSet\Control\FileSystem",
+        "LongPathsEnabled", 1, winreg.REG_DWORD,
+    )
+    _log(logger, "tweak_long_paths", "Enabled long file paths", success=ok)
+    return _result(ok, "Long file paths (>260 chars) enabled")
+
+
+def _tw_disable_startup_delay(logger) -> tuple[bool, str]:
+    if not _is_windows():
+        return _result(False, "Windows only")
+    ok1 = _set_reg(
+        winreg.HKEY_CURRENT_USER,
+        r"Software\Microsoft\Windows\CurrentVersion\Explorer\Serialize",
+        "StartupDelayInMSec", 0, winreg.REG_DWORD,
+    )
+    ok2 = _set_reg(
+        winreg.HKEY_LOCAL_MACHINE,
+        r"SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon",
+        "AutoRestartShell", 1, winreg.REG_DWORD,
+    )
+    ok = ok1 or ok2
+    _log(logger, "tweak_startup_delay", "Disabled startup delay", success=ok)
+    return _result(ok, "Startup app delay removed")
+
+
+def _tw_disable_error_reporting(logger) -> tuple[bool, str]:
+    if not _is_windows():
+        return _result(False, "Windows only")
+    ok1 = _set_service_start("WerSvc", "disabled")
+    _stop_service("WerSvc")
+    ok2 = _set_reg(
+        winreg.HKEY_LOCAL_MACHINE,
+        r"SOFTWARE\Microsoft\Windows\Windows Error Reporting",
+        "Disabled", 1, winreg.REG_DWORD,
+    )
+    ok = ok1 or ok2
+    _log(logger, "tweak_wer", "Disabled Windows Error Reporting", success=ok)
+    return _result(ok, "Windows Error Reporting disabled")
+
+
+def _tw_disable_remote_assistance(logger) -> tuple[bool, str]:
+    if not _is_windows():
+        return _result(False, "Windows only")
+    ok1 = _set_reg(
+        winreg.HKEY_LOCAL_MACHINE,
+        r"SYSTEM\CurrentControlSet\Control\Remote Assistance",
+        "fAllowToGetHelp", 0, winreg.REG_DWORD,
+    )
+    ok2 = _set_reg(
+        winreg.HKEY_LOCAL_MACHINE,
+        r"SOFTWARE\Policies\Microsoft\Windows NT\Terminal Services",
+        "fAllowToGetHelp", 0, winreg.REG_DWORD,
+    )
+    ok = ok1 or ok2
+    _log(logger, "tweak_remote_assistance", "Disabled Remote Assistance", success=ok)
+    return _result(ok, "Remote Assistance disabled")
+
+
+# ---------------------------------------------------------------------------
+# New tweaks — Performance
+# ---------------------------------------------------------------------------
+
+def _tw_perf_ntfs_timestamps(logger) -> tuple[bool, str]:
+    if not _is_windows():
+        return _result(False, "Windows only")
+    rc, _, _ = _run(["fsutil", "behavior", "set", "disablelastaccess", "1"], timeout=15)
+    ok = rc == 0
+    _log(logger, "tweak_ntfs_ts", "Disabled NTFS last access timestamps", success=ok)
+    return _result(ok, "NTFS last-access timestamp updates disabled")
+
+
+def _tw_perf_disable_83names(logger) -> tuple[bool, str]:
+    if not _is_windows():
+        return _result(False, "Windows only")
+    rc, _, _ = _run(["fsutil", "behavior", "set", "disable8dot3", "1"], timeout=15)
+    ok = rc == 0
+    _log(logger, "tweak_8dot3", "Disabled 8.3 filename creation", success=ok)
+    return _result(ok, "8.3 filename creation disabled")
+
+
+def _tw_perf_hags(logger) -> tuple[bool, str]:
+    if not _is_windows():
+        return _result(False, "Windows only")
+    ok = _set_reg(
+        winreg.HKEY_LOCAL_MACHINE,
+        r"SYSTEM\CurrentControlSet\Control\GraphicsDrivers",
+        "HwSchMode", 2, winreg.REG_DWORD,
+    )
+    _log(logger, "tweak_hags", "Enabled HAGS", success=ok)
+    return _result(ok, "Hardware-Accelerated GPU Scheduling (HAGS) enabled — restart required")
+
+
+def _tw_perf_visual_effects(logger) -> tuple[bool, str]:
+    if not _is_windows():
+        return _result(False, "Windows only")
+    ok = _set_reg(
+        winreg.HKEY_CURRENT_USER,
+        r"Software\Microsoft\Windows\CurrentVersion\Explorer\VisualEffects",
+        "VisualFXSetting", 2, winreg.REG_DWORD,
+    )
+    # Also disable specific animations
+    _set_reg(winreg.HKEY_CURRENT_USER,
+             r"Control Panel\Desktop\WindowMetrics", "MinAnimate", "0", winreg.REG_SZ)
+    _log(logger, "tweak_visual_effects", "Set visual effects to performance", success=ok)
+    return _result(ok, "Visual effects set to best performance")
+
+
+def _tw_perf_network_throttling(logger) -> tuple[bool, str]:
+    if not _is_windows():
+        return _result(False, "Windows only")
+    ok = _set_reg(
+        winreg.HKEY_LOCAL_MACHINE,
+        r"SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile",
+        "NetworkThrottlingIndex", 0xFFFFFFFF, winreg.REG_DWORD,
+    )
+    _log(logger, "tweak_net_throttle", "Disabled network throttling", success=ok)
+    return _result(ok, "Network throttling index disabled")
+
+
+def _tw_perf_disable_dynamic_tick(logger) -> tuple[bool, str]:
+    if not _is_windows():
+        return _result(False, "Windows only")
+    rc, _, _ = _run(["bcdedit", "/set", "disabledynamictick", "yes"], timeout=15)
+    ok = rc == 0
+    _log(logger, "tweak_dynamic_tick", "Disabled dynamic tick", success=ok)
+    return _result(ok, "Dynamic tick disabled — restart required")
+
+
+def _tw_perf_timer_resolution(logger) -> tuple[bool, str]:
+    if not _is_windows():
+        return _result(False, "Windows only")
+    ok = _set_reg(
+        winreg.HKEY_LOCAL_MACHINE,
+        r"SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile",
+        "SystemResponsiveness", 0, winreg.REG_DWORD,
+    )
+    _log(logger, "tweak_timer_res", "Set system responsiveness hint", success=ok)
+    return _result(ok, "System timer responsiveness hint set to 0 (games/audio priority)")
+
+
+# ---------------------------------------------------------------------------
+# New tweaks — Privacy
+# ---------------------------------------------------------------------------
+
+def _tw_priv_advertising_id(logger) -> tuple[bool, str]:
+    if not _is_windows():
+        return _result(False, "Windows only")
+    ok = _set_reg(
+        winreg.HKEY_CURRENT_USER,
+        r"Software\Microsoft\Windows\CurrentVersion\AdvertisingInfo",
+        "Enabled", 0, winreg.REG_DWORD,
+    )
+    _log(logger, "tweak_adv_id", "Disabled advertising ID", success=ok)
+    return _result(ok, "Advertising ID disabled")
+
+
+def _tw_priv_tailored_experiences(logger) -> tuple[bool, str]:
+    if not _is_windows():
+        return _result(False, "Windows only")
+    ok1 = _set_reg(
+        winreg.HKEY_CURRENT_USER,
+        r"Software\Microsoft\Windows\CurrentVersion\Privacy",
+        "TailoredExperiencesWithDiagnosticDataEnabled", 0, winreg.REG_DWORD,
+    )
+    ok2 = _set_reg(
+        winreg.HKEY_LOCAL_MACHINE,
+        r"SOFTWARE\Policies\Microsoft\Windows\CloudContent",
+        "DisableTailoredExperiencesWithDiagnosticData", 1, winreg.REG_DWORD,
+    )
+    ok = ok1 or ok2
+    _log(logger, "tweak_tailored", "Disabled tailored experiences", success=ok)
+    return _result(ok, "Tailored experiences disabled")
+
+
+def _tw_priv_lockscreen_ads(logger) -> tuple[bool, str]:
+    if not _is_windows():
+        return _result(False, "Windows only")
+    keys = [
+        _set_reg(winreg.HKEY_CURRENT_USER,
+                 r"Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager",
+                 "RotatingLockScreenEnabled", 0, winreg.REG_DWORD),
+        _set_reg(winreg.HKEY_CURRENT_USER,
+                 r"Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager",
+                 "RotatingLockScreenOverlayEnabled", 0, winreg.REG_DWORD),
+        _set_reg(winreg.HKEY_CURRENT_USER,
+                 r"Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager",
+                 "SubscribedContent-338387Enabled", 0, winreg.REG_DWORD),
+    ]
+    ok = any(keys)
+    _log(logger, "tweak_lockscreen_ads", "Disabled lock screen ads", success=ok)
+    return _result(ok, "Lock screen ads/tips disabled")
+
+
+def _tw_priv_start_ads(logger) -> tuple[bool, str]:
+    if not _is_windows():
+        return _result(False, "Windows only")
+    vals = {
+        "ContentDeliveryAllowed": 0,
+        "OemPreInstalledAppsEnabled": 0,
+        "PreInstalledAppsEnabled": 0,
+        "PreInstalledAppsEverEnabled": 0,
+        "SilentInstalledAppsEnabled": 0,
+        "SubscribedContent-338388Enabled": 0,
+        "SubscribedContent-310093Enabled": 0,
+        "SystemPaneSuggestionsEnabled": 0,
+    }
+    ok = False
+    for name, val in vals.items():
+        if _set_reg(winreg.HKEY_CURRENT_USER,
+                    r"Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager",
+                    name, val, winreg.REG_DWORD):
+            ok = True
+    _log(logger, "tweak_start_ads", "Disabled Start Menu ads", success=ok)
+    return _result(ok, "Start Menu suggested/promoted apps disabled")
+
+
+def _tw_priv_feedback(logger) -> tuple[bool, str]:
+    if not _is_windows():
+        return _result(False, "Windows only")
+    ok1 = _set_reg(
+        winreg.HKEY_CURRENT_USER,
+        r"Software\Microsoft\Siuf\Rules",
+        "NumberOfSIUFInPeriod", 0, winreg.REG_DWORD,
+    )
+    ok2 = _set_reg(
+        winreg.HKEY_LOCAL_MACHINE,
+        r"SOFTWARE\Policies\Microsoft\Windows\DataCollection",
+        "DoNotShowFeedbackNotifications", 1, winreg.REG_DWORD,
+    )
+    ok = ok1 or ok2
+    _log(logger, "tweak_feedback", "Disabled feedback notifications", success=ok)
+    return _result(ok, "Feedback notifications disabled")
+
+
+def _tw_priv_maps_download(logger) -> tuple[bool, str]:
+    if not _is_windows():
+        return _result(False, "Windows only")
+    ok1 = _set_service_start("MapsBroker", "disabled")
+    _stop_service("MapsBroker")
+    ok2 = _set_reg(
+        winreg.HKEY_LOCAL_MACHINE,
+        r"SOFTWARE\Policies\Microsoft\Windows\Maps",
+        "AutoDownloadAndUpdateMapData", 0, winreg.REG_DWORD,
+    )
+    ok = ok1 or ok2
+    _log(logger, "tweak_maps", "Disabled maps auto-download", success=ok)
+    return _result(ok, "Maps auto-download disabled")
+
+
+def _tw_priv_cortana(logger) -> tuple[bool, str]:
+    if not _is_windows():
+        return _result(False, "Windows only")
+    ok1 = _set_reg(
+        winreg.HKEY_LOCAL_MACHINE,
+        r"SOFTWARE\Policies\Microsoft\Windows\Windows Search",
+        "AllowCortana", 0, winreg.REG_DWORD,
+    )
+    ok2 = _set_reg(
+        winreg.HKEY_CURRENT_USER,
+        r"Software\Microsoft\Windows\CurrentVersion\Search",
+        "CortanaEnabled", 0, winreg.REG_DWORD,
+    )
+    ok = ok1 or ok2
+    _log(logger, "tweak_cortana", "Disabled Cortana", success=ok)
+    return _result(ok, "Cortana disabled")
+
+
+def _tw_priv_recent_clear(logger) -> tuple[bool, str]:
+    if not _is_windows():
+        return _result(False, "Windows only")
+    ok1 = _set_reg(
+        winreg.HKEY_CURRENT_USER,
+        r"Software\Microsoft\Windows\CurrentVersion\Policies\Explorer",
+        "ClearRecentDocsOnExit", 1, winreg.REG_DWORD,
+    )
+    ok2 = _set_reg(
+        winreg.HKEY_CURRENT_USER,
+        r"Software\Microsoft\Windows\CurrentVersion\Policies\Explorer",
+        "NoRecentDocsHistory", 1, winreg.REG_DWORD,
+    )
+    ok = ok1 or ok2
+    _log(logger, "tweak_recent_clear", "Enabled clear recent on exit", success=ok)
+    return _result(ok, "Recent files/docs cleared on logout")
+
+
+def _tw_priv_clipboard_history(logger) -> tuple[bool, str]:
+    if not _is_windows():
+        return _result(False, "Windows only")
+    ok = _set_reg(
+        winreg.HKEY_LOCAL_MACHINE,
+        r"SOFTWARE\Policies\Microsoft\Windows\System",
+        "AllowClipboardHistory", 0, winreg.REG_DWORD,
+    )
+    _log(logger, "tweak_clipboard_hist", "Disabled clipboard history", success=ok)
+    return _result(ok, "Clipboard history (Win+V) disabled")
+
+
+# ---------------------------------------------------------------------------
+# New tweaks — Gaming
+# ---------------------------------------------------------------------------
+
+def _tw_game_disable_gamebar(logger) -> tuple[bool, str]:
+    if not _is_windows():
+        return _result(False, "Windows only")
+    keys = [
+        _set_reg(winreg.HKEY_CURRENT_USER,
+                 r"Software\Microsoft\Windows\CurrentVersion\GameDVR",
+                 "AppCaptureEnabled", 0, winreg.REG_DWORD),
+        _set_reg(winreg.HKEY_LOCAL_MACHINE,
+                 r"SOFTWARE\Policies\Microsoft\Windows\GameDVR",
+                 "AllowGameDVR", 0, winreg.REG_DWORD),
+        _set_reg(winreg.HKEY_CURRENT_USER,
+                 r"System\GameConfigStore",
+                 "GameDVR_Enabled", 0, winreg.REG_DWORD),
+        _set_reg(winreg.HKEY_CURRENT_USER,
+                 r"Software\Microsoft\GameBar",
+                 "UseNexusForGameBarEnabled", 0, winreg.REG_DWORD),
+        _set_reg(winreg.HKEY_CURRENT_USER,
+                 r"Software\Microsoft\GameBar",
+                 "AutoGameModeEnabled", 0, winreg.REG_DWORD),
+    ]
+    ok = any(keys)
+    _log(logger, "tweak_gamebar", "Disabled Xbox Game Bar", success=ok)
+    return _result(ok, "Xbox Game Bar disabled")
+
+
+def _probe_game_mode() -> bool | None:
+    if not _is_windows():
+        return None
+    val = _read_reg(winreg.HKEY_CURRENT_USER,
+                    r"Software\Microsoft\GameBar", "AutoGameModeEnabled")
+    return val == 1
+
+
+def _toggle_game_mode(enable: bool, logger) -> tuple[bool, str]:
+    if not _is_windows():
+        return _result(False, "Windows only")
+    ok = _set_reg(winreg.HKEY_CURRENT_USER,
+                  r"Software\Microsoft\GameBar",
+                  "AutoGameModeEnabled", 1 if enable else 0, winreg.REG_DWORD)
+    _log(logger, "tweak_game_mode", f"Game Mode={'on' if enable else 'off'}", success=ok)
+    return _result(ok, f"Game Mode {'enabled' if enable else 'disabled'}")
+
+
+def _tw_game_gpu_high_perf(logger) -> tuple[bool, str]:
+    if not _is_windows():
+        return _result(False, "Windows only")
+    ok = _set_reg(
+        winreg.HKEY_LOCAL_MACHINE,
+        r"SYSTEM\CurrentControlSet\Control\GraphicsDrivers",
+        "TdrLevel", 0, winreg.REG_DWORD,
+    )
+    ok2 = _set_reg(
+        winreg.HKEY_LOCAL_MACHINE,
+        r"SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile\Tasks\Games",
+        "GPU Priority", 8, winreg.REG_DWORD,
+    )
+    ok3 = _set_reg(
+        winreg.HKEY_LOCAL_MACHINE,
+        r"SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile\Tasks\Games",
+        "Priority", 6, winreg.REG_DWORD,
+    )
+    ok4 = _set_reg(
+        winreg.HKEY_LOCAL_MACHINE,
+        r"SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile\Tasks\Games",
+        "Scheduling Category", "High", winreg.REG_SZ,
+    )
+    result_ok = ok or ok2 or ok3 or ok4
+    _log(logger, "tweak_gpu_perf", "Set GPU high performance hints", success=result_ok)
+    return _result(result_ok, "GPU/game scheduler priority set to High")
+
+
+# ---------------------------------------------------------------------------
+# New tweaks — Security
+# ---------------------------------------------------------------------------
+
+def _tw_sec_disable_smbv1(logger) -> tuple[bool, str]:
+    if not _is_windows():
+        return _result(False, "Windows only")
+    rc1, _, _ = _run(
+        ["powershell", "-NoProfile", "-Command",
+         "Set-SmbServerConfiguration -EnableSMB1Protocol $false -Force"],
+        timeout=30,
+    )
+    rc2, _, _ = _run(
+        ["powershell", "-NoProfile", "-Command",
+         "Disable-WindowsOptionalFeature -Online -FeatureName SMB1Protocol -NoRestart"],
+        timeout=60,
+    )
+    ok = rc1 == 0 or rc2 == 0
+    _log(logger, "tweak_smbv1", "Disabled SMBv1", success=ok)
+    return _result(ok, "SMBv1 disabled — restart may be required")
+
+
+def _tw_sec_disable_autorun(logger) -> tuple[bool, str]:
+    if not _is_windows():
+        return _result(False, "Windows only")
+    ok1 = _set_reg(
+        winreg.HKEY_LOCAL_MACHINE,
+        r"SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\Explorer",
+        "NoDriveTypeAutoRun", 0xFF, winreg.REG_DWORD,
+    )
+    ok2 = _set_reg(
+        winreg.HKEY_LOCAL_MACHINE,
+        r"SOFTWARE\Policies\Microsoft\Windows\Explorer",
+        "NoAutoplayfornonVolume", 1, winreg.REG_DWORD,
+    )
+    ok = ok1 or ok2
+    _log(logger, "tweak_autorun", "Disabled AutoRun/AutoPlay", success=ok)
+    return _result(ok, "AutoRun/AutoPlay disabled for all drives")
+
+
+def _tw_sec_disable_llmnr(logger) -> tuple[bool, str]:
+    if not _is_windows():
+        return _result(False, "Windows only")
+    ok = _set_reg(
+        winreg.HKEY_LOCAL_MACHINE,
+        r"SOFTWARE\Policies\Microsoft\Windows NT\DNSClient",
+        "EnableMulticast", 0, winreg.REG_DWORD,
+    )
+    _log(logger, "tweak_llmnr", "Disabled LLMNR", success=ok)
+    return _result(ok, "LLMNR disabled — reduces MitM attack surface")
+
+
+def _tw_sec_disable_netbios(logger) -> tuple[bool, str]:
+    if not _is_windows():
+        return _result(False, "Windows only")
+    ok = _set_reg(
+        winreg.HKEY_LOCAL_MACHINE,
+        r"SYSTEM\CurrentControlSet\Services\NetBT\Parameters",
+        "NetbiosOptions", 2, winreg.REG_DWORD,
+    )
+    _log(logger, "tweak_netbios", "Disabled NetBIOS over TCP/IP", success=ok)
+    return _result(ok, "NetBIOS over TCP/IP disabled")
+
+
+# ---------------------------------------------------------------------------
+# New tweaks — UI/UX preference toggles
+# ---------------------------------------------------------------------------
+
+def _probe_clock_seconds() -> bool | None:
+    if not _is_windows():
+        return None
+    val = _read_reg(winreg.HKEY_CURRENT_USER,
+                    r"Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced",
+                    "ShowSecondsInSystemClock")
+    return val == 1
+
+
+def _toggle_clock_seconds(enable: bool, logger) -> tuple[bool, str]:
+    if not _is_windows():
+        return _result(False, "Windows only")
+    ok = _set_reg(winreg.HKEY_CURRENT_USER,
+                  r"Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced",
+                  "ShowSecondsInSystemClock", 1 if enable else 0, winreg.REG_DWORD)
+    _log(logger, "tweak_clock_sec", f"clock_seconds={'on' if enable else 'off'}", success=ok)
+    return _result(ok, f"Clock seconds {'shown' if enable else 'hidden'}")
+
+
+def _probe_transparency() -> bool | None:
+    if not _is_windows():
+        return None
+    val = _read_reg(winreg.HKEY_CURRENT_USER,
+                    r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize",
+                    "EnableTransparency")
+    return val == 1
+
+
+def _toggle_transparency(enable: bool, logger) -> tuple[bool, str]:
+    if not _is_windows():
+        return _result(False, "Windows only")
+    ok = _set_reg(winreg.HKEY_CURRENT_USER,
+                  r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize",
+                  "EnableTransparency", 1 if enable else 0, winreg.REG_DWORD)
+    _log(logger, "tweak_transparency", f"transparency={'on' if enable else 'off'}", success=ok)
+    return _result(ok, f"Transparency effects {'enabled' if enable else 'disabled'}")
+
+
+def _probe_animations() -> bool | None:
+    if not _is_windows():
+        return None
+    val = _read_reg(winreg.HKEY_CURRENT_USER,
+                    r"Control Panel\Desktop\WindowMetrics",
+                    "MinAnimate")
+    return val != "0"
+
+
+def _toggle_animations(enable: bool, logger) -> tuple[bool, str]:
+    if not _is_windows():
+        return _result(False, "Windows only")
+    ok = _set_reg(winreg.HKEY_CURRENT_USER,
+                  r"Control Panel\Desktop\WindowMetrics",
+                  "MinAnimate", "1" if enable else "0", winreg.REG_SZ)
+    _log(logger, "tweak_animations", f"animations={'on' if enable else 'off'}", success=ok)
+    return _result(ok, f"Window animations {'enabled' if enable else 'disabled'}")
+
+
+def _probe_compact_explorer() -> bool | None:
+    if not _is_windows():
+        return None
+    val = _read_reg(winreg.HKEY_CURRENT_USER,
+                    r"Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced",
+                    "UseCompactMode")
+    return val == 1
+
+
+def _toggle_compact_explorer(enable: bool, logger) -> tuple[bool, str]:
+    if not _is_windows():
+        return _result(False, "Windows only")
+    ok = _set_reg(winreg.HKEY_CURRENT_USER,
+                  r"Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced",
+                  "UseCompactMode", 1 if enable else 0, winreg.REG_DWORD)
+    _log(logger, "tweak_compact", f"compact_mode={'on' if enable else 'off'}", success=ok)
+    return _result(ok, f"Explorer compact mode {'enabled' if enable else 'disabled'}")
+
+
+# ---------------------------------------------------------------------------
 # Definitions
 # ---------------------------------------------------------------------------
 
@@ -2167,9 +2727,53 @@ _TWEAKS: list[TweakDef] = [
     TweakDef("pref_widgets", "Widgets Button in Taskbar", "preferences", kind="toggle", set_fn=_toggle_widgets, probe_fn=_probe_widgets),
     TweakDef("pref_detailed_bsod", "Detailed BSoD", "preferences", kind="toggle", set_fn=_toggle_detailed_bsod, probe_fn=_probe_detailed_bsod),
 
+    # Essential — additions
+    TweakDef("disable_sysmain",         "Disable SysMain / Superfetch",          "essential", action_fn=_tw_disable_sysmain),
+    TweakDef("disable_search_indexing", "Disable Windows Search Indexing",        "essential", action_fn=_tw_disable_search_indexing),
+    TweakDef("disable_fast_startup",    "Disable Fast Startup",                   "essential", action_fn=_tw_disable_fast_startup),
+    TweakDef("enable_long_paths",       "Enable Long File Paths (>260 chars)",    "essential", action_fn=_tw_enable_long_paths),
+    TweakDef("disable_startup_delay",   "Remove Startup App Delay",               "essential", action_fn=_tw_disable_startup_delay),
+    TweakDef("disable_error_reporting", "Disable Windows Error Reporting",        "essential", action_fn=_tw_disable_error_reporting),
+    TweakDef("disable_remote_assist",   "Disable Remote Assistance",              "essential", action_fn=_tw_disable_remote_assistance),
+
     # Performance
     TweakDef("add_activate_ultimate_perf", "Add and Activate Ultimate Performance Profile", "performance", action_fn=_tw_add_activate_ultimate_perf),
-    TweakDef("remove_ultimate_perf", "Remove Ultimate Performance Profile", "performance", action_fn=_tw_remove_ultimate_perf, caution=True),
+    TweakDef("remove_ultimate_perf",       "Remove Ultimate Performance Profile",           "performance", action_fn=_tw_remove_ultimate_perf, caution=True),
+    TweakDef("perf_ntfs_timestamps",       "Disable NTFS Last-Access Timestamps",           "performance", action_fn=_tw_perf_ntfs_timestamps),
+    TweakDef("perf_disable_83names",       "Disable 8.3 Filename Creation",                 "performance", action_fn=_tw_perf_disable_83names),
+    TweakDef("perf_hags",                  "Enable Hardware-Accelerated GPU Scheduling",     "performance", action_fn=_tw_perf_hags),
+    TweakDef("perf_visual_effects",        "Set Visual Effects to Best Performance",         "performance", action_fn=_tw_perf_visual_effects),
+    TweakDef("perf_network_throttling",    "Disable Network Throttling Index",               "performance", action_fn=_tw_perf_network_throttling),
+    TweakDef("perf_disable_dynamic_tick",  "Disable Dynamic Tick",                           "performance", action_fn=_tw_perf_disable_dynamic_tick, caution=True),
+    TweakDef("perf_timer_resolution",      "Set System Timer Responsiveness (games/audio)",  "performance", action_fn=_tw_perf_timer_resolution),
+
+    # Privacy
+    TweakDef("priv_advertising_id",        "Disable Advertising ID",                        "privacy", action_fn=_tw_priv_advertising_id),
+    TweakDef("priv_tailored_experiences",  "Disable Tailored Experiences",                  "privacy", action_fn=_tw_priv_tailored_experiences),
+    TweakDef("priv_lockscreen_ads",        "Disable Lock Screen Ads / Tips",                "privacy", action_fn=_tw_priv_lockscreen_ads),
+    TweakDef("priv_start_ads",             "Disable Start Menu Ads / Suggested Apps",       "privacy", action_fn=_tw_priv_start_ads),
+    TweakDef("priv_feedback",              "Disable Feedback Notifications",                "privacy", action_fn=_tw_priv_feedback),
+    TweakDef("priv_maps_download",         "Disable Maps Auto-Download",                    "privacy", action_fn=_tw_priv_maps_download),
+    TweakDef("priv_cortana",               "Disable Cortana",                               "privacy", action_fn=_tw_priv_cortana),
+    TweakDef("priv_recent_clear",          "Clear Recent Files/Docs on Logout",             "privacy", action_fn=_tw_priv_recent_clear),
+    TweakDef("priv_clipboard_history",     "Disable Clipboard History (Win+V)",             "privacy", action_fn=_tw_priv_clipboard_history),
+
+    # Gaming
+    TweakDef("game_disable_gamebar",  "Disable Xbox Game Bar",                             "gaming", action_fn=_tw_game_disable_gamebar),
+    TweakDef("game_mode",             "Windows Game Mode",                                  "gaming", kind="toggle", set_fn=_toggle_game_mode, probe_fn=_probe_game_mode),
+    TweakDef("game_gpu_high_perf",    "GPU & Game Scheduler High Priority",                 "gaming", action_fn=_tw_game_gpu_high_perf),
+
+    # Security
+    TweakDef("sec_disable_smbv1",    "Disable SMBv1",                                      "security", action_fn=_tw_sec_disable_smbv1, caution=True),
+    TweakDef("sec_disable_autorun",  "Disable AutoRun / AutoPlay",                          "security", action_fn=_tw_sec_disable_autorun),
+    TweakDef("sec_disable_llmnr",    "Disable LLMNR (MitM prevention)",                    "security", action_fn=_tw_sec_disable_llmnr),
+    TweakDef("sec_disable_netbios",  "Disable NetBIOS over TCP/IP",                         "security", action_fn=_tw_sec_disable_netbios),
+
+    # UI/UX preference toggles — additions
+    TweakDef("pref_clock_seconds",    "Show Seconds in Taskbar Clock",    "preferences", kind="toggle", set_fn=_toggle_clock_seconds,    probe_fn=_probe_clock_seconds),
+    TweakDef("pref_transparency",     "Transparency Effects",             "preferences", kind="toggle", set_fn=_toggle_transparency,     probe_fn=_probe_transparency),
+    TweakDef("pref_animations",       "Window Animation Effects",         "preferences", kind="toggle", set_fn=_toggle_animations,       probe_fn=_probe_animations),
+    TweakDef("pref_compact_explorer", "Compact Mode in File Explorer",    "preferences", kind="toggle", set_fn=_toggle_compact_explorer, probe_fn=_probe_compact_explorer),
 ]
 
 _TWEAK_MAP = {t.key: t for t in _TWEAKS}

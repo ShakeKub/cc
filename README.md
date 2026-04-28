@@ -27,6 +27,7 @@ The main menu is organized into six categories.
 | 3 | Standard Clean | Quick + browser caches, prefetch, DNS flush |
 | 4 | Deep Clean | Standard + Windows Update cache, log files, thumbnail cache |
 | 5 | Team Clean | All-in-one: deep system + all browsers + privacy tracking files |
+| 6 | High-value Space Makers | Dev junk, package caches, Windows component store, hibernation/page file, app caches, Recycle Bin/Trash, and old backup files |
 
 ### File Tools
 | # | Feature | Description |

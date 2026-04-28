@@ -16,18 +16,24 @@ def _sha1(path: str, block: int = 65536) -> str | None:
         return None
 
 
-def find_duplicates(root: str, min_size: int = 4096, logger=None) -> list[list[dict]]:
+def find_duplicates(root: str, min_size: int = 4096,
+                    scan_filter=None, logger=None) -> list[list[dict]]:
     """
     Return groups of duplicate files (≥2 per group), sorted largest-first.
     Each entry: {path, size, modified}.
     Two-pass: first group by size (cheap), then hash only size-collisions.
     """
     size_map: dict[int, list[str]] = defaultdict(list)
-    for dirpath, _, filenames in os.walk(root):
+    for dirpath, dirnames, filenames in os.walk(root):
+        if scan_filter:
+            dirnames[:] = [d for d in dirnames
+                           if not scan_filter.should_skip_dir(os.path.join(dirpath, d))]
         for name in filenames:
             fp = os.path.join(dirpath, name)
             try:
                 sz = os.path.getsize(fp)
+                if scan_filter and scan_filter.should_skip_file(fp, sz):
+                    continue
                 if sz >= min_size:
                     size_map[sz].append(fp)
             except OSError:

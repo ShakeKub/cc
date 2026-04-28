@@ -6,6 +6,7 @@ from typing import Callable
 
 
 def analyze(root: str, top_n: int = 20,
+            scan_filter=None,
             progress_cb: Callable | None = None) -> dict:
     """Walk *root* and return size breakdown by folder and extension."""
     root_path = Path(root).resolve()
@@ -18,12 +19,17 @@ def analyze(root: str, top_n: int = 20,
     for dirpath, dirnames, filenames in os.walk(root_path, followlinks=False,
                                                  onerror=lambda e: None):
         dp = Path(dirpath)
+        if scan_filter:
+            dirnames[:] = [d for d in dirnames
+                           if not scan_filter.should_skip_dir(str(dp / d))]
         dir_size = 0
         for fname in filenames:
             fp = dp / fname
             try:
                 size = fp.stat().st_size
             except (OSError, PermissionError):
+                continue
+            if scan_filter and scan_filter.should_skip_file(str(fp), size):
                 continue
             total += size
             dir_size += size
