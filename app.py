@@ -1512,6 +1512,7 @@ def menu_privacy(logger: CleanerLogger):
         print(f"  {C}[2]{RST} {t('priv.toggle_tel')}")
         print(f"  {C}[3]{RST} {t('priv.scan_track')}")
         print(f"  {C}[4]{RST} {t('priv.clean_track')}")
+        print(f"  {C}[5]{RST} {t('priv.defender')}")
         print(f"  {C}[0]{RST} {t('menu.back')}")
         sep()
         c = prompt()
@@ -1563,6 +1564,48 @@ def menu_privacy(logger: CleanerLogger):
                 except Exception as e:
                     err(str(e))
             pause()
+        elif c == "5":
+            if not is_admin():
+                warn(t("admin.required", action=t("priv.defender")))
+                pause()
+                continue
+            try:
+                from core.privacy import get_defender_status, set_defender_realtime
+                status = get_defender_status(logger)
+                if not status.get("ok"):
+                    err(status.get("message", ""))
+                    pause()
+                    continue
+                enabled = bool(status.get("enabled"))
+                state_label = f"{G}{t('priv.defender_on')}{RST}" if enabled else f"{R}{t('priv.defender_off')}{RST}"
+                sep()
+                print(f"  {t('priv.defender_status')}: {state_label}")
+                print(f"  {C}[1]{RST} {t('priv.defender_disable')}")
+                print(f"  {C}[2]{RST} {t('priv.defender_enable')}")
+                print(f"  {C}[0]{RST} {t('menu.back')}")
+                sep()
+                pick = prompt().strip()
+                if pick == "0":
+                    continue
+                if pick not in ("1", "2"):
+                    err(t("app.unknown_option"))
+                    pause()
+                    continue
+                target = pick == "2"
+                warn(t("priv.defender_warn"))
+                if prompt(t("prompt.type_yes_confirm")).upper() not in ("YES", "ANO"):
+                    info(t("app.cancelled"))
+                    pause()
+                    continue
+                result = set_defender_realtime(target, logger)
+                if result.get("ok"):
+                    ok(t("priv.defender_done"))
+                else:
+                    err(result.get("message", ""))
+                pause()
+            except Exception as e:
+                err(str(e))
+                pause()
 
 
 # ── 13. TRACER ──────────────────────────────────────────────

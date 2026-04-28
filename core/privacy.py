@@ -109,6 +109,58 @@ def get_telemetry_status(logger: CleanerLogger) -> list[dict[str, Any]]:
     return results
 
 
+def _run_powershell(command: str) -> tuple[int, str, str]:
+    try:
+        result = subprocess.run(
+            ["powershell", "-NoProfile", "-Command", command],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        return result.returncode, result.stdout.strip(), result.stderr.strip()
+    except Exception as exc:
+        return -1, "", str(exc)
+
+
+def get_defender_status(logger: CleanerLogger) -> dict[str, Any]:
+    """Return Windows Defender realtime protection status."""
+    if os.name != "nt":
+        return {"ok": False, "enabled": None, "message": "Windows only."}
+    cmd = "Get-MpComputerStatus | Select-Object -ExpandProperty RealTimeProtectionEnabled"
+    rc, out, err = _run_powershell(cmd)
+    if rc != 0 or not out:
+        msg = err or out or "Unable to read Defender status."
+        logger.error(f"Defender status failed: {msg}")
+        return {"ok": False, "enabled": None, "message": msg}
+    enabled = out.strip().lower() == "true"
+    return {"ok": True, "enabled": enabled, "message": ""}
+
+
+def set_defender_realtime(enabled: bool, logger: CleanerLogger) -> dict[str, Any]:
+    """Enable or disable Windows Defender realtime protection."""
+    if os.name != "nt":
+        return {"ok": False, "enabled": None, "message": "Windows only."}
+    disable_flag = "$false" if enabled else "$true"
+    cmd = f"Set-MpPreference -DisableRealtimeMonitoring {disable_flag}"
+    rc, out, err = _run_powershell(cmd)
+    if rc != 0:
+        msg = err or out or "Operation failed."
+        logger.error(f"Defender toggle failed: {msg}")
+        return {"ok": False, "enabled": None, "message": msg}
+
+    status = get_defender_status(logger)
+    if status.get("ok") and status.get("enabled") == enabled:
+        action = "defender_enable" if enabled else "defender_disable"
+        logger.log(action, "privacy", "Windows Defender realtime protection")
+        return {"ok": True, "enabled": enabled, "message": ""}
+
+    return {
+        "ok": False,
+        "enabled": status.get("enabled"),
+        "message": "Status could not be confirmed. Tamper protection may be enabled.",
+    }
+
+
 def disable_telemetry(setting_name: str, logger: CleanerLogger) -> bool:
     """Disable a specific telemetry setting."""
     config = TELEMETRY_SETTINGS.get(setting_name)
