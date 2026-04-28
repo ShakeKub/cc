@@ -9,12 +9,28 @@ from pathlib import Path
 from typing import Any
 
 _INSTANCE_COUNTER = itertools.count()
+_CONFIG_PATH = Path(__file__).resolve().parent.parent / "config.json"
+
+
+def _read_config() -> dict[str, Any]:
+    try:
+        if _CONFIG_PATH.exists():
+            return json.loads(_CONFIG_PATH.read_text(encoding="utf-8"))
+    except Exception:
+        pass
+    return {}
 
 
 class CleanerLogger:
     """Full logging system with export and reporting capabilities."""
 
     def __init__(self, log_dir: str = "logs", log_format: str = "json", max_files: int = 50):
+        cfg = _read_config()
+        log_dir = cfg.get("log_dir", log_dir)
+        log_format = cfg.get("log_format", log_format)
+        max_files = cfg.get("max_log_files", max_files)
+        level_name = str(cfg.get("log_level", "INFO")).upper()
+
         self.log_dir = Path(log_dir)
         self.log_dir.mkdir(exist_ok=True)
         self.log_format = log_format
@@ -29,7 +45,7 @@ class CleanerLogger:
         # when CleanerLogger is instantiated more than once in the same process.
         logger_name = f"ByteSweep.{self.session_id}"
         self._logger = logging.getLogger(logger_name)
-        self._logger.setLevel(logging.DEBUG)
+        self._logger.setLevel(getattr(logging, level_name, logging.INFO))
         self._logger.propagate = False
         handler = logging.FileHandler(
             self.log_dir / f"cleaner_{self.session_start.strftime('%Y%m%d_%H%M%S')}.log"

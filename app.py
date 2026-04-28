@@ -15,11 +15,21 @@ if str(_APP_DIR) not in sys.path:
 from core.logger import CleanerLogger
 from core.i18n import t, set_language, get_language, available_languages
 
+_CONFIG_PATH = Path(__file__).parent / "config.json"
+
 # ── Load language from config ────────────────────────────────
-def _load_language_from_config():
-    cfg_path = Path(__file__).parent / "config.json"
+def _read_config() -> dict:
     try:
-        cfg = json.loads(cfg_path.read_text(encoding="utf-8"))
+        if _CONFIG_PATH.exists():
+            return json.loads(_CONFIG_PATH.read_text(encoding="utf-8"))
+    except Exception:
+        pass
+    return {}
+
+
+def _load_language_from_config():
+    try:
+        cfg = _read_config()
         lang = cfg.get("language", "en")
         set_language(lang)
     except Exception:
@@ -159,11 +169,12 @@ def _parse_nums(s: str, upper: int) -> list[int]:
 
 
 def fmt_bytes(b: int) -> str:
+    size = float(b)
     for unit in ["B", "KB", "MB", "GB", "TB"]:
-        if b < 1024:
-            return f"{b:.1f} {unit}"
-        b /= 1024
-    return f"{b:.1f} PB"
+        if size < 1024:
+            return f"{size:.1f} {unit}"
+        size /= 1024
+    return f"{size:.1f} PB"
 
 
 def is_admin() -> bool:
@@ -172,6 +183,74 @@ def is_admin() -> bool:
         return ctypes.windll.shell32.IsUserAnAdmin() != 0
     except Exception:
         return False
+
+
+_RISKY_ACTIONS = {
+    "9",   # Secure Wipe
+    "16",  # Registry Cleaner
+    "19",  # Uninstaller
+    "20",  # Autoruns
+    "41",  # DNS & Hosts Editor
+    "42",  # Ad Blocker
+    "44",  # Factory Setup Wizard
+    "45",  # Tweaks Center
+}
+
+_ADMIN_ACTIONS = {
+    "16",  # Registry Cleaner
+    "20",  # Autoruns
+    "21",  # Context Menu
+    "29",  # Scheduler
+    "34",  # Firewall Rules
+    "40",  # Windows Update
+    "41",  # DNS & Hosts Editor
+    "42",  # Ad Blocker
+    "79",  # Service Manager
+    "81",  # Shadow Copy Manager
+    "83",  # Windows Activation Info
+}
+
+
+def _confirm_risky_action(action_key: str, action_label: str) -> bool:
+    cfg = _read_config()
+    if not cfg.get("confirm_risky_actions", True):
+        return True
+    if action_key not in _RISKY_ACTIONS:
+        return True
+    warn(t("risk.warning", action=action_label))
+    confirm = prompt(t("prompt.type_yes_confirm"))
+    if confirm.upper() not in ("YES", "ANO"):
+        info(t("app.cancelled"))
+        pause()
+        return False
+    return True
+
+
+def _confirm_admin(action_key: str, action_label: str) -> bool:
+    if is_admin() or action_key not in _ADMIN_ACTIONS:
+        return True
+    cfg = _read_config()
+    safe_mode = cfg.get("safe_mode", True)
+    if safe_mode:
+        warn(t("admin.blocked", action=action_label))
+        pause()
+        return False
+    warn(t("admin.required", action=action_label))
+    confirm = prompt(t("prompt.type_yes_confirm"))
+    if confirm.upper() not in ("YES", "ANO"):
+        info(t("app.cancelled"))
+        pause()
+        return False
+    return True
+
+
+def _run_menu_action(action_key: str, action_label: str, action, logger: CleanerLogger):
+    try:
+        action(logger)
+    except Exception as exc:
+        logger.error(f"Action failed ({action_key} - {action_label}): {exc}")
+        err(t("app.action_failed", action=action_label, err=exc))
+        pause()
 
 
 # ── MAIN MENU ───────────────────────────────────────────────
@@ -285,6 +364,20 @@ def _menu_categories():
     ]
 
 
+def menu_quick_start():
+    header(t("hdr.quick_start"))
+    print(f"  {B}{t('qs.title')}{RST}\n")
+    print(f"  1. {t('qs.step1')}")
+    print(f"  2. {t('qs.step2')}")
+    print(f"  3. {t('qs.step3')}")
+    print(f"  4. {t('qs.step4')}")
+    print(f"  5. {t('qs.step5')}")
+    print()
+    print(f"  {DIM}{t('qs.note_admin')}{RST}")
+    print(f"  {DIM}{t('qs.note_safe_mode')}{RST}")
+    pause()
+
+
 # Category icons for the home screen
 _CAT_ICONS = ["⚙", "📁", "🔧", "📊", "🖥", "🔒"]
 
@@ -330,21 +423,32 @@ def _menu_category_view(cat_label: str, items: list, logger: CleanerLogger):
             return
 
         action = None
+        action_label = None
+        action_key = ""
         if choice.isdigit():
             idx = int(choice) - 1
             if 0 <= idx < len(items):
                 action_key = items[idx][0]
                 action = _DISPATCH.get(action_key)
+            action_label = items[idx][1]
 
         # Backward-compatible fallback for legacy IDs/aliases within this category.
         if action is None:
             normalized = choice.strip().lower()
             allowed = {key.lower() for key, _ in items}
             if normalized in allowed:
+                action_key = next((key for key, _ in items if key.lower() == normalized), "")
                 action = _DISPATCH.get(choice) or _DISPATCH.get(choice.lower()) or _DISPATCH.get(choice.upper())
+                if action_label is None:
+                    action_label = {key.lower(): label for key, label in items}.get(normalized)
 
         if action:
-            action(logger)
+            action_label = action_label or t("app.unknown_action")
+            if not _confirm_admin(action_key, action_label):
+                continue
+            if not _confirm_risky_action(action_key, action_label):
+                continue
+            _run_menu_action(action_key, action_label, action, logger)
         else:
             err(t("app.unknown_option"))
             pause()
@@ -469,10 +573,14 @@ def main_menu(logger: CleanerLogger):
         categories = _menu_categories()
         _print_home_categories(categories)
 
+        print(f"  {C}[ H]{RST} {t('menu.quick_start')}")
         print(f"  {C}[ 0]{RST} {t('menu.exit')}")
         sep()
         choice = prompt()
 
+        if choice.lower() in ("h", "help", "?"):
+            menu_quick_start()
+            continue
         if choice in ("0", "q", "exit", "quit"):
             clr()
             print(f"\n  {G}{t('app.bye')}{RST}\n")
@@ -545,7 +653,7 @@ def menu_clean(logger: CleanerLogger, profile: str):
         return
     info(t("clean.cleaning"))
     try:
-        import psutil, json
+        import psutil
         from core.cleaner import clean_all
 
         # Snapshot disk usage BEFORE cleaning so we can show real delta
@@ -555,8 +663,7 @@ def menu_clean(logger: CleanerLogger, profile: str):
         except Exception:
             disk_before = None
 
-        cfg_path = Path(__file__).parent / "config.json"
-        cfg = json.loads(cfg_path.read_text(encoding="utf-8")) if cfg_path.exists() else {}
+        cfg = _read_config()
         p = cfg.get("cleaning_profiles", {}).get(profile)
         results = clean_all(logger, p)
         freed_reported = results.get("total_freed", 0)

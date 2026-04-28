@@ -15,6 +15,39 @@ pip install -r requirements.txt
 python main.py
 ```
 
+## Quick Start
+
+1. Run **System Scan** to review temporary files and suspicious processes.
+2. Run **Quick Clean** or **Standard Clean** and confirm the freed space.
+3. Create a **Restore Point** before high-impact actions (Registry, Tweaks, Autoruns).
+4. Use **Logs & Reports** to export a session report.
+5. If an action fails, review files under `logs/` for details.
+
+Administrator privileges are recommended for system-level actions. Safe Mode blocks high-risk actions without explicit confirmation.
+
+## Testing
+
+```bash
+pip install -r requirements-dev.txt
+pytest
+```
+
+## Packaging (Windows)
+
+Use one of the build scripts to create a standalone executable:
+
+```powershell
+./build_windows.ps1
+```
+
+or
+
+```bat
+build_windows.bat
+```
+
+The output is written to `dist/ByteSweep.exe`.
+
 ## Menu
 
 The main menu is organized into six categories.
@@ -229,6 +262,9 @@ cc/
 ├── app.py                # All menus and UI logic (pure ANSI terminal)
 ├── config.json           # Cleaning profiles and language setting
 ├── requirements.txt
+├── requirements-dev.txt  # Test and build dependencies
+├── build_windows.ps1      # PyInstaller build script (PowerShell)
+├── build_windows.bat      # PyInstaller build script (CMD)
 ├── wol_devices.json      # Saved Wake-on-LAN devices (auto-created)
 ├── locales/
 │   ├── en.json           # English strings

@@ -4,6 +4,8 @@ import os
 import shutil
 import subprocess
 import ctypes
+import json
+from functools import lru_cache
 from pathlib import Path
 from typing import Generator
 from core.logger import CleanerLogger
@@ -15,11 +17,35 @@ PROTECTED_DIRS = {
     "boot", "assembly", "microsoft.net",
 }
 
+_CONFIG_PATH = Path(__file__).resolve().parent.parent / "config.json"
+
+
+@lru_cache(maxsize=1)
+def _protected_paths_from_config() -> list[str]:
+    try:
+        if _CONFIG_PATH.exists():
+            cfg = json.loads(_CONFIG_PATH.read_text(encoding="utf-8"))
+            paths = cfg.get("protected_paths", [])
+            return [str(p).strip().lower().rstrip("/\\") for p in paths if str(p).strip()]
+    except Exception:
+        pass
+    return []
+
 
 def _is_protected(path: Path) -> bool:
     """Check if path is a protected system location."""
     parts_lower = [p.lower() for p in path.parts]
-    return any(p in PROTECTED_DIRS for p in parts_lower)
+    if any(p in PROTECTED_DIRS for p in parts_lower):
+        return True
+    path_str = str(path).lower()
+    for protected in _protected_paths_from_config():
+        if not protected:
+            continue
+        if path_str == protected:
+            return True
+        if path_str.startswith(protected) and path_str[len(protected):len(protected)+1] in ("/", "\\"):
+            return True
+    return False
 
 
 def _safe_remove(path: Path, logger: CleanerLogger) -> int:

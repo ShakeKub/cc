@@ -4,12 +4,18 @@
 
   "app.bye": "Bye.",
   "app.unknown_option": "Unknown option.",
+  "app.cancelled": "Cancelled.",
+  "app.action_failed": "Action failed: {action}. Error: {err}",
+  "app.unknown_action": "Unknown action",
   "prompt.press_enter": "Press Enter to continue...",
   "prompt.type_yes": "Type YES: ",
   "prompt.type_yes_confirm": "Type YES to confirm: ",
   "prompt.type_yes_start": "Type YES to start: ",
   "status.admin": "ADMIN",
   "status.no_admin": "no admin",
+  "admin.blocked": "Administrator privileges are required for {action} in Safe Mode.",
+  "admin.required": "Administrator privileges are recommended for {action}.",
+  "risk.warning": "This action can modify critical system settings: {action}.",
 
   "cat.cleaning":    "Cleaning",
   "cat.file_tools":  "File Tools",
@@ -19,6 +25,7 @@
   "cat.security":    "Security",
 
   "menu.system_scan":    "System Scan",
+  "menu.quick_start":    "Quick Start",
   "menu.quick_clean":    "Quick Clean",
   "menu.standard_clean": "Standard Clean",
   "menu.deep_clean":     "Deep Clean",
@@ -113,6 +120,7 @@
   "menu.exit":           "Exit",
 
   "hdr.system_scan":    "System Scan",
+  "hdr.quick_start":    "Quick Start",
   "hdr.quick_clean":    "Quick Clean",
   "hdr.standard_clean": "Standard Clean",
   "hdr.deep_clean":     "Deep Clean",
@@ -160,6 +168,15 @@
   "clean.unchanged":  "Disk free space unchanged (files may be in use or already freed by OS)",
   "clean.failed":     "Clean failed: {err}",
   "clean.cancelled":  "Cancelled.",
+
+  "qs.title": "Five-minute setup for best results.",
+  "qs.step1": "Run System Scan to review temporary files and suspicious processes.",
+  "qs.step2": "Run Quick Clean or Standard Clean and review the freed space.",
+  "qs.step3": "Create a restore point before high-impact actions (Registry, Tweaks, Autoruns).",
+  "qs.step4": "Use Logs & Reports to export a session report.",
+  "qs.step5": "If an action fails, review files under logs/ for details.",
+  "qs.note_admin": "Administrator privileges are recommended for system-level actions.",
+  "qs.note_safe_mode": "Safe Mode prevents high-risk actions without explicit confirmation.",
 
   "browser.detect":     "Detect browsers",
   "browser.cache":      "Clean cache",

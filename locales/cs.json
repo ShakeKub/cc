@@ -4,12 +4,18 @@
 
   "app.bye": "Nashledanou.",
   "app.unknown_option": "Neznámá volba.",
+  "app.cancelled": "Zrušeno.",
+  "app.action_failed": "Akce selhala: {action}. Chyba: {err}",
+  "app.unknown_action": "Neznámá akce",
   "prompt.press_enter": "Stiskněte Enter pro pokračování...",
   "prompt.type_yes": "Napište ANO: ",
   "prompt.type_yes_confirm": "Napište ANO pro potvrzení: ",
   "prompt.type_yes_start": "Napište ANO pro spuštění: ",
   "status.admin": "ADMIN",
   "status.no_admin": "bez admina",
+  "admin.blocked": "Pro akci {action} jsou v bezpečném režimu vyžadována práva správce.",
+  "admin.required": "Pro akci {action} jsou doporučena práva správce.",
+  "risk.warning": "Tato akce může měnit kritická nastavení systému: {action}.",
 
   "cat.cleaning":    "Čištění",
   "cat.file_tools":  "Soubory",
@@ -19,6 +25,7 @@
   "cat.security":    "Bezpečnost",
 
   "menu.system_scan":    "Skenování systému",
+  "menu.quick_start":    "Rychlý start",
   "menu.quick_clean":    "Rychlé čištění",
   "menu.standard_clean": "Standardní čištění",
   "menu.deep_clean":     "Hloubkové čištění",
@@ -113,6 +120,7 @@
   "menu.exit":           "Konec",
 
   "hdr.system_scan":    "Skenování systému",
+  "hdr.quick_start":    "Rychlý start",
   "hdr.quick_clean":    "Rychlé čištění",
   "hdr.standard_clean": "Standardní čištění",
   "hdr.deep_clean":     "Hloubkové čištění",
@@ -160,6 +168,15 @@
   "clean.unchanged": "Volné místo na disku se nezměnilo (soubory mohou být stále v paměti OS)",
   "clean.failed":    "Čištění selhalo: {err}",
   "clean.cancelled": "Zrušeno.",
+
+  "qs.title": "Pětiminutové nastavení pro nejlepší výsledky.",
+  "qs.step1": "Spusťte Skenování systému a zkontrolujte dočasné soubory a podezřelé procesy.",
+  "qs.step2": "Spusťte Rychlé nebo Standardní čištění a zkontrolujte uvolněné místo.",
+  "qs.step3": "Před zásadními akcemi vytvořte bod obnovení (registry, tweaky, autoruns).",
+  "qs.step4": "V Záznamech a reportech exportujte report ze sezení.",
+  "qs.step5": "Pokud akce selže, podívejte se do logs/ pro detailní informace.",
+  "qs.note_admin": "Pro systémové akce jsou doporučena práva správce.",
+  "qs.note_safe_mode": "Bezpečný režim blokuje rizikové akce bez explicitního potvrzení.",
 
   "browser.detect":     "Zjistit prohlížeče",
   "browser.cache":      "Vyčistit cache",
