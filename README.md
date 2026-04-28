@@ -115,6 +115,7 @@ The main menu is organized into six categories.
 | 44 | Factory Setup Wizard | New-PC provisioning profiles (Dev/Gaming/Office/Family): optional restore checkpoint, app bundle install from manifest, smart startup/services optimization, power-plan target |
 | 45 | Tweaks Center | Essential + advanced Windows tweaks, preference toggles, and performance-plan actions (with cautions for high-impact operations) |
 | 46 | Package Manager | Install, uninstall, upgrade packages via winget and Chocolatey; show upgradable list |
+| 91 | App Downloader | Download installers for popular apps (browsers, gaming, tools) |
 | 49 | App Manager | List running user apps with CPU/RAM/connections; kill or block/unblock internet per process |
 | 71 | JSON / YAML / XML Formatter | Auto-detect and format JSON/XML/YAML from files or pasted input |
 

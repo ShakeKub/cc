@@ -320,6 +320,7 @@ def _menu_categories():
             ("44", t("menu.factory_wizard")),
             ("45", t("menu.tweaks")),
             ("46", t("menu.pkg_mgr")),
+            ("91", t("menu.app_downloader")),
             ("49", t("menu.app_mgr")),
             ("71", t("menu.code_fmt")),
             ("76", t("menu.shares_mgr")),
@@ -504,6 +505,7 @@ _DISPATCH = {
     "44": lambda l: menu_factory_wizard(l),
     "45": lambda l: menu_tweaks(l),
     "46": lambda l: menu_pkgmgr(l),
+    "91": lambda l: menu_app_downloader(l),
     "47": lambda l: menu_fileencrypt(l),
     "48": lambda l: menu_drivermgr(l),
     "49": lambda l: menu_appmgr(l),
@@ -6390,6 +6392,89 @@ def _pick_backend(wg: bool, ch: bool) -> str | None:
         choice = prompt("Backend: ")
         return "winget" if choice == "1" else "choco" if choice == "2" else None
     return None
+
+
+# ── 91. APP DOWNLOADER ─────────────────────────────────────
+
+def menu_app_downloader(logger: CleanerLogger):
+    from core import appdownloader as _ad
+
+    categories = [
+        ("browsers", t("appdl.cat.browsers")),
+        ("gaming", t("appdl.cat.gaming")),
+        ("communication", t("appdl.cat.communication")),
+        ("tools", t("appdl.cat.tools")),
+        ("media", t("appdl.cat.media")),
+        ("all", t("appdl.cat.all")),
+    ]
+
+    def _progress(downloaded: int, total: int):
+        if total > 0:
+            pct = (downloaded / total) * 100
+            print(f"\r  {pct:5.1f}%  {fmt_bytes(downloaded)}/{fmt_bytes(total)}", end="", flush=True)
+        else:
+            print(f"\r  {fmt_bytes(downloaded)}", end="", flush=True)
+
+    while True:
+        header(t("hdr.app_downloader"))
+        print(f"  {t('appdl.choose_category')}")
+        sep()
+        for i, (_, label) in enumerate(categories, 1):
+            print(f"  {C}[{i}]{RST} {label}")
+        print(f"  {C}[0]{RST} {t('menu.back')}")
+        sep()
+        choice = prompt().strip()
+
+        if choice == "0":
+            break
+        if not choice.isdigit() or not (1 <= int(choice) <= len(categories)):
+            err(t("app.unknown_option"))
+            pause()
+            continue
+
+        cat_key, cat_label = categories[int(choice) - 1]
+        apps = _ad.list_apps(None if cat_key == "all" else cat_key)
+        if not apps:
+            warn(t("appdl.no_apps"))
+            pause()
+            continue
+
+        while True:
+            header(t("hdr.app_downloader"))
+            print(f"  {cat_label}\n")
+            for i, app in enumerate(apps, 1):
+                print(f"  {C}[{i}]{RST} {app.name}  {DIM}{app.description}{RST}")
+            print(f"  {C}[0]{RST} {t('menu.back')}")
+            sep()
+            pick = prompt(t("appdl.select_app")).strip()
+
+            if pick == "0":
+                break
+            if not pick.isdigit() or not (1 <= int(pick) <= len(apps)):
+                err(t("app.unknown_option"))
+                pause()
+                continue
+
+            app = apps[int(pick) - 1]
+            default_dir = _ad.default_download_dir()
+            dest_raw = prompt(t("appdl.download_dir", path=str(default_dir))).strip().strip('"')
+            dest_dir = Path(dest_raw).expanduser() if dest_raw else default_dir
+            dest_path = dest_dir / _ad.resolve_filename(app)
+
+            if dest_path.exists():
+                warn(t("appdl.exists", path=str(dest_path)))
+                if prompt(t("prompt.type_yes_confirm")).upper() not in ("YES", "ANO"):
+                    continue
+
+            info(t("appdl.downloading", name=app.name))
+            try:
+                out = _ad.download_app(app, dest_dir, logger, progress_cb=_progress)
+                print()
+                ok(t("appdl.saved", path=str(out)))
+            except Exception as exc:
+                print()
+                err(t("appdl.failed", err=exc))
+            pause()
 
 
 # ── 47. FILE ENCRYPTION ──────────────────────────────────────
