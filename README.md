@@ -1,4 +1,4 @@
-# System Cleaner
+# ByteSweep
 
 A Windows system maintenance tool with a pure ANSI terminal interface. Cleans junk files, manages processes and startup entries, monitors applications, analyzes disk usage, and more — all from a keyboard-driven menu.
 

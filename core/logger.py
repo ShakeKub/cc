@@ -27,7 +27,7 @@ class CleanerLogger:
 
         # Use a unique logger name per session to avoid duplicate handlers
         # when CleanerLogger is instantiated more than once in the same process.
-        logger_name = f"SystemCleaner.{self.session_id}"
+        logger_name = f"ByteSweep.{self.session_id}"
         self._logger = logging.getLogger(logger_name)
         self._logger.setLevel(logging.DEBUG)
         self._logger.propagate = False
@@ -222,7 +222,7 @@ class CleanerLogger:
         stats = self.get_session_stats()
         lines = [
             "=" * 70,
-            "  SYSTEM CLEANER - CLEANING REPORT",
+            "  BYTESWEEP - CLEANING REPORT",
             "=" * 70,
             f"  Session Start : {stats['session_start']}",
             f"  Duration      : {stats['duration_seconds']:.1f} seconds",
@@ -300,7 +300,7 @@ class CleanerLogger:
 
         lines = [
             "=" * 78,
-            "  SYSTEM CLEANER - AUDIT REPORT",
+            "  BYTESWEEP - AUDIT REPORT",
             "=" * 78,
             f"  Generated      : {datetime.now().isoformat()}",
             f"  Session ID     : {self.session_id}",

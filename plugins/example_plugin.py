@@ -16,7 +16,7 @@ def register(app):
     """Register this plugin with the application.
 
     Args:
-        app: The SystemCleanerApp instance
+        app: The ByteSweepApp instance
     """
     # Plugins can add custom commands, cleaning actions, or UI elements
     # Example: Register a custom cleaning action

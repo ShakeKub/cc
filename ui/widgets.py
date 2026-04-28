@@ -1,4 +1,4 @@
-"""Custom Textual widgets for the System Cleaner UI."""
+"""Custom Textual widgets for the ByteSweep UI."""
 
 from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical
@@ -26,7 +26,7 @@ class HeaderBanner(Static):
 
     def render(self):
         text = Text(ASCII_HEADER, style="bold green")
-        subtitle = Text("  System Cleaner & Optimization Tool v1.0", style="cyan")
+        subtitle = Text("  ByteSweep & Optimization Tool v1.0", style="cyan")
         return Group(text, subtitle)
 
 

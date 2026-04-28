@@ -1,4 +1,4 @@
-"""Theme system for System Cleaner & Optimization Tool."""
+"""Theme system for ByteSweep & Optimization Tool."""
 
 THEMES = {
     "cyberpunk": {

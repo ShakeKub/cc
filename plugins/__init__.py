@@ -1,4 +1,4 @@
-"""Plugin system for System Cleaner & Optimization Tool.
+"""Plugin system for ByteSweep & Optimization Tool.
 
 Plugins are Python modules placed in the plugins/ directory.
 Each plugin must define:

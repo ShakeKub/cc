@@ -9,7 +9,7 @@ import urllib.request
 _PW_URL    = "https://api.pwnedpasswords.com/range/{prefix}"
 _EMAIL_URL = "https://haveibeenpwned.com/api/v3/breachedaccount/{email}"
 _PASTE_URL = "https://haveibeenpwned.com/api/v3/pasteaccount/{email}"
-_UA        = "SystemCleaner/1.0"
+_UA        = "ByteSweep/1.0"
 
 
 def _get(url: str, headers: dict | None = None, timeout: int = 10) -> tuple[int, str]:

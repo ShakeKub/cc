@@ -546,7 +546,7 @@ def _tw_create_restore_point(logger) -> tuple[bool, str]:
     try:
         from core.restore import create_restore_point
 
-        desc = f"SystemCleaner Tweak Checkpoint {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+        desc = f"ByteSweep Tweak Checkpoint {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
         ok = create_restore_point(desc, logger)
         _log(logger, "tweak_restore_point", desc, success=ok)
         return _result(ok, "Restore point created" if ok else "Restore point creation failed")

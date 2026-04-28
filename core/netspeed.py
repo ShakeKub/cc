@@ -67,7 +67,7 @@ def dns_resolution_time(hostname: str) -> dict:
 def download_speed(url: str = TEST_URL, timeout: int = 30) -> dict:
     """Download from url, return speed in Mbps."""
     try:
-        req = urllib.request.Request(url, headers={"User-Agent": "SystemCleaner/1.0"})
+        req = urllib.request.Request(url, headers={"User-Agent": "ByteSweep/1.0"})
         t0 = time.perf_counter()
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             data = resp.read()

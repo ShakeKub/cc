@@ -394,7 +394,7 @@ def run_factory_wizard(
             result["checkpoint"]["error"] = "Restore points are supported on Windows only"
             result["ok"] = False
         else:
-            rp_name = f"SystemCleaner-{profile['id']}-{run_id}"
+            rp_name = f"ByteSweep-{profile['id']}-{run_id}"
             result["checkpoint"]["name"] = rp_name
             try:
                 ok = create_restore_point(rp_name, logger)

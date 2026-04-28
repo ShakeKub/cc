@@ -7,8 +7,8 @@ from pathlib import Path
 from core.logger import CleanerLogger
 
 HOSTS_PATH = Path(r"C:\Windows\System32\drivers\etc\hosts")
-MARKER_START = "# == System Cleaner Hosts Block Start =="
-MARKER_END   = "# == System Cleaner Hosts Block End =="
+MARKER_START = "# == ByteSweep Hosts Block Start =="
+MARKER_END   = "# == ByteSweep Hosts Block End =="
 
 
 def flush_dns(logger: CleanerLogger) -> bool:

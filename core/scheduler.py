@@ -9,7 +9,7 @@ from typing import Any
 from core.logger import CleanerLogger
 
 
-TASK_PREFIX = "SystemCleaner_"
+TASK_PREFIX = "ByteSweep_"
 CONFIG_FILE = "config.json"
 
 
@@ -113,7 +113,7 @@ def delete_scheduled_task(name: str, logger: CleanerLogger) -> bool:
 
 
 def list_scheduled_tasks(logger: CleanerLogger) -> list[dict[str, Any]]:
-    """List all System Cleaner scheduled tasks."""
+    """List all ByteSweep scheduled tasks."""
     tasks = []
     config = _load_config()
 

@@ -1,4 +1,4 @@
-"""System Cleaner - pure terminal interface."""
+"""ByteSweep - pure terminal interface."""
 
 import json
 import os
@@ -4108,7 +4108,7 @@ def menu_restore_points(logger: CleanerLogger):
             pause()
 
         elif c == "2":
-            desc = prompt("Description [System Cleaner checkpoint]: ").strip() or "System Cleaner checkpoint"
+            desc = prompt("Description [ByteSweep checkpoint]: ").strip() or "ByteSweep checkpoint"
             info("Creating restore point — this may take a moment…")
             try:
                 from core.restore import create_restore_point
@@ -8727,10 +8727,12 @@ def menu_wifi_passwords(logger: CleanerLogger):
                 pause(); continue
             print()
             for p in profiles:
-                ssid  = p.get("ssid", "?")
-                auth  = p.get("auth", "")
-                pw    = p.get("password", "")
-                iface = p.get("interface", "")
+                # Support both dict and NamedTuple profile shapes.
+                ssid  = getattr(p, "ssid", None) if not isinstance(p, dict) else p.get("ssid")
+                auth  = getattr(p, "auth", "") if not isinstance(p, dict) else p.get("auth", "")
+                pw    = getattr(p, "password", "") if not isinstance(p, dict) else p.get("password", "")
+                iface = getattr(p, "interface", "") if not isinstance(p, dict) else p.get("interface", "")
+                ssid = ssid or "?"
                 pw_str = pw if pw else f"{DIM}[no password / enterprise]{RST}"
                 print(f"  {G}{ssid}{RST}  {DIM}{auth}{RST}  {iface}")
                 print(f"    Password: {pw_str}")
@@ -9677,8 +9679,8 @@ def menu_browser_pwd(logger: CleanerLogger):
 
 # ── ENTRY POINT ─────────────────────────────────────────────
 
-class SystemCleanerApp:
-    """Thin wrapper so main.py can still do: app = SystemCleanerApp(); app.run()"""
+class ByteSweepApp:
+    """Thin wrapper so main.py can still do: app = ByteSweepApp(); app.run()"""
     def run(self):
         logger = CleanerLogger()
         try:

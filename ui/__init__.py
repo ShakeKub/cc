@@ -1,1 +1,1 @@
-"""UI components for System Cleaner & Optimization Tool."""
+"""UI components for ByteSweep & Optimization Tool."""

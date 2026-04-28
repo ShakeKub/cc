@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""System Cleaner & Optimization Tool - Entry Point.
+"""ByteSweep & Optimization Tool - Entry Point.
 
 Usage:
     python main.py                    Launch the TUI application
@@ -143,7 +143,7 @@ def run_cli(command: str):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="System Cleaner & Optimization Tool",
+        description="ByteSweep & Optimization Tool",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="Examples:\n"
                "  python main.py                    Launch TUI\n"
@@ -168,8 +168,8 @@ def main():
         run_silent(args.profile)
     else:
         # Launch the TUI
-        from app import SystemCleanerApp
-        app = SystemCleanerApp()
+        from app import ByteSweepApp
+        app = ByteSweepApp()
         app.run()
 
 

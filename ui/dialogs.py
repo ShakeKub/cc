@@ -290,7 +290,7 @@ class CommandPalette(ModalScreen[str]):
         ("export:txt", "Export log as TXT"),
         ("export:json", "Export log as JSON"),
         ("theme:cycle", "Cycle through themes"),
-        ("about", "About System Cleaner"),
+        ("about", "About ByteSweep"),
         ("quit", "Exit application"),
     ]
 

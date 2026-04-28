@@ -4,8 +4,8 @@ from pathlib import Path
 from core.logger import CleanerLogger
 
 HOSTS_PATH = Path(r"C:\Windows\System32\drivers\etc\hosts")
-MARKER_START = "# == System Cleaner Ad Block Start =="
-MARKER_END   = "# == System Cleaner Ad Block End =="
+MARKER_START = "# == ByteSweep Ad Block Start =="
+MARKER_END   = "# == ByteSweep Ad Block End =="
 
 # Curated list of common ad/tracking domains
 BLOCK_LIST = [

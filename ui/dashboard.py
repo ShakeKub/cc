@@ -16,7 +16,7 @@ from ui.widgets import (
 # Sidebar menu items with icons
 MENU_ITEMS = [
     ("dashboard", "📊", "Dashboard"),
-    ("cleaner", "🧹", "System Cleaner"),
+    ("cleaner", "🧹", "ByteSweep"),
     ("browser", "🌐", "Browser Cleaner"),
     ("uninstaller", "📦", "Uninstaller"),
     ("startup", "🚀", "Startup Manager"),
@@ -250,7 +250,7 @@ def render_cleaner_view(scan_results: dict | None = None) -> str:
         "[bold]System Cleaning Module[/]\n\n"
         "  Clean temporary files, caches, and system junk.\n"
         "  Safe mode enabled - critical files are protected.\n",
-        title="[bold cyan]🧹 System Cleaner[/]",
+        title="[bold cyan]🧹 ByteSweep[/]",
         border_style="cyan",
     ))
 

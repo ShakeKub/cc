@@ -1,1 +1,1 @@
-"""Core modules for System Cleaner & Optimization Tool."""
+"""Core modules for ByteSweep & Optimization Tool."""
